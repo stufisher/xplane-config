@@ -1,0 +1,371 @@
+esphome:
+  name: flighdisplay1
+  friendly_name: flighdisplay1
+  includes:
+      - include/xplane.hpp
+  on_boot:
+    - priority: 250
+      then:
+        - component.update: disp0
+        - component.update: disp1
+        - component.update: disp2
+        - component.update: disp3
+        - component.update: disp4
+        - component.update: disp5
+        - component.update: disp6
+        - component.update: disp7
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret display_api_key
+
+ota:
+  password: !secret display_ota
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "FD 1 Fallback Hotspot"
+    password: !secret display_fallback
+
+  on_connect:
+    - udp.write:
+        id: udp_com
+        data: "HELLO"
+
+i2c:
+  sda: 21
+  scl: 25
+  id: bus_a
+  frequency: 800kHz
+
+font:
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 500
+    id: roboto_16
+    size: 16
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 500
+    id: roboto_22
+    size: 22
+  - file: fonts/DSEG7ClassicMini-Regular.ttf
+    size: 32
+    id: dseg
+  - file: fonts/DSEG7ClassicMini-Regular.ttf
+    size: 28
+    id: dseg28
+  - file: fonts/DSEG14ClassicMini-Regular.ttf
+    size: 24
+    id: dseg_14
+
+tca9548a:
+    id: multiplex0
+    i2c_id: bus_a
+    channels:
+      - bus_id: mpx0
+        channel: 4
+      - bus_id: mpx1
+        channel: 3
+      - bus_id: mpx2
+        channel: 2
+      - bus_id: mpx3
+        channel: 1
+      - bus_id: mpx4
+        channel: 0
+      - bus_id: mpx5
+        channel: 6
+      - bus_id: mpx6
+        channel: 5
+      - bus_id: mpx7
+        channel: 7
+
+display:
+  - platform: ssd1306_i2c
+    i2c_id: mpx0
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp0
+    lambda: |-
+      it.print(0, 0, id(roboto_16), "SPD");
+      if (isnan(id(spd).state)) {
+        it.print(0, 28, id(dseg), "---");
+      } else {
+        it.printf(0, 28, id(dseg), "%3.0f", id(spd).state);
+      }
+      if (!isnan(id(spd_mgd).state) && id(spd_mgd).state) {
+        it.filled_circle(100, 45, 8);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx1
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp1
+    lambda: |-
+      //it.print(0, 0, id(roboto_16), "HDG TRK LAT");
+      it.print(0, 0, id(roboto_16), "HDG     LAT");
+      if (isnan(id(hdg).state)) {
+        it.print(0, 28, id(dseg), "---");
+      } else {
+        it.printf(0, 28, id(dseg), "%03.0f", id(hdg).state);
+      }
+      if (!isnan(id(hdg_mgd).state) && id(hdg_mgd).state) {
+        it.filled_circle(100, 45, 8);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx2
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp2
+    lambda: |-
+      it.print(8, 18, id(roboto_16), "HDG    V/S");
+      //it.print(8, 38, id(roboto_16), "TRK    FPA");
+      if (!isnan(id(toga).state) && id(toga).state) {
+        auto toga_state = id(toga).state;
+        it.print(12, 38, id(roboto_16), toga_state == 2 ? "TO/GA CAP" : "TO/GA ARM");
+      } else {
+        it.print(12, 38, id(roboto_16), "    -    ");
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx3
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp3
+    lambda: |-
+      it.print(41, 0, id(roboto_16), "ALT   LVL");
+      if (isnan(id(alt).state)) {
+        it.print(0, 28, id(dseg), "-----");
+      } else {
+        it.printf(0, 28, id(dseg), "%05.0f", id(alt).state);
+      }
+      it.filled_rectangle(76, 10, 20, 2);
+      it.filled_rectangle(76, 10, 2, 8);
+  - platform: ssd1306_i2c
+    i2c_id: mpx4
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp4
+    lambda: |-
+      //it.print(0, 0, id(roboto_16), "/CH   V/S FPA");
+      it.print(0, 0, id(roboto_16), "/CH   V/S");
+      it.filled_rectangle(35, 10, 20, 2);
+      it.filled_rectangle(53, 10, 2, 8);
+      if (!isnan(id(alt_mgd).state) && id(alt_mgd).state) {
+        it.filled_circle(10, 40, 8);
+      }
+      if (!isnan(id(vs_mgd).state) && !id(vs_mgd).state) {
+        it.filled_circle(100, 10, 4);
+      }
+      if (isnan(id(vs).state)) {
+        it.print(39, 28, id(dseg28), "----");
+      } else {
+        it.print(22, 29, id(dseg_14), id(vs).state < 0 ? "-": "+");
+        it.printf(39, 28, id(dseg28), "%04.0f", abs(id(vs).state));
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx6
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp6
+    lambda: |-
+      it.print(0, 0, id(roboto_16), "QFE");
+      //it.print(0, 0, id(roboto_16), "QFE  QNH");
+      if (isnan(id(baro).state)) {
+        it.print(0, 28, id(dseg), "----");
+      } else {
+        it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx5
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp5
+    lambda: |-
+      if (isnan(id(nav1).state)) {
+        it.print(0, 0, id(dseg28), "---.--");
+      } else {
+        it.printf(0, 0, id(dseg28), "%03.2f", id(nav1).state/100.0);
+      }
+      if (isnan(id(nav2).state)) {
+        it.print(0, 34, id(dseg28), "---.--");
+      } else {
+        it.printf(0, 34, id(dseg28), "%03.2f", id(nav2).state/100.0);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx7
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp7
+    lambda: |-
+      if (!isnan(id(prk).state) && id(prk).state) {
+        it.print(4, 0, id(roboto_22), "PRK");
+      } else {
+        it.print(4, 0, id(roboto_22), "   ");
+      }
+      if (!isnan(id(gear).state) && id(gear).state) {
+        it.print(76, 0, id(roboto_22), "LDG");
+      } else {
+        it.print(76, 0, id(roboto_22), "   ");
+      }
+
+udp:
+  - id: udp_com
+    port: 55678
+    addresses:
+      - 192.168.1.100
+    on_receive:
+      then:
+        - lambda: |-
+            std::string cmd;
+            for (uint8_t i = 0; i < 5; i++)
+            {
+              cmd += data[i];
+            }
+
+            if (cmd.find("RREF") == 0)
+            {
+              std::map<std::uint8_t, template_::TemplateSensor *> sensors = {
+                  {1, id(spd_mgd)},
+                  {2, id(spd)},
+                  {3, id(hdg_mgd)},
+                  {4, id(hdg)},
+                  {5, id(alt_mgd)},
+                  {6, id(vs_mgd)},
+                  {7, id(alt)},
+                  {8, id(vs)},
+                  {9, id(nav1)},
+                  {10, id(nav2)},
+                  {11, id(baro)},
+                  {12, id(prk)},
+                  {13, id(gear)},
+                  {14, id(toga)},
+              };
+
+              uint8_t num_structs = (data.size() - 5) / sizeof(rref_data_type);
+              rref_data_type *f = reinterpret_cast<rref_data_type *>(&data[5]);
+              for (uint8_t j = 0; j < num_structs; j += 1)
+              {
+                auto sensor = sensors.find(f[j].idx);
+                float value = f[j].val;
+                float current = sensor->second->state;
+                //ESP_LOGI("SENSOR", "%f %s", current, sensor->second->get_name());
+                if (value != current)
+                {
+                  sensor->second->publish_state(value);
+                }
+              }
+            }
+
+sensor:
+  - platform: template
+    id: spd
+    name: SPD
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp0
+  - platform: template
+    id: hdg
+    name: HDG
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp1
+  - platform: template
+    id: alt
+    name: ALT
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp3
+  - platform: template
+    id: vs
+    name: V/S
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp4
+  - platform: template
+    id: spd_mgd
+    name: SPD Managed
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp0
+  - platform: template
+    id: hdg_mgd
+    name: HDG Managed
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp1
+  - platform: template
+    id: alt_mgd
+    name: ALT Managed
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp4
+  - platform: template
+    id: vs_mgd
+    name: VS/ Managed
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp4
+  - platform: template
+    id: nav1
+    name: NAV1
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp5
+  - platform: template
+    id: nav2
+    name: NAV2
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp5
+  - platform: template
+    id: baro
+    name: BARO
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp6
+  - platform: template
+    id: prk
+    name: PRK
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp7
+  - platform: template
+    id: gear
+    name: GEAR
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp7
+  - platform: template
+    id: toga
+    name: TOGA
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp2

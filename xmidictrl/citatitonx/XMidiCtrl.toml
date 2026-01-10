@@ -1,0 +1,177 @@
+# Virtual Device
+[virtual_device]
+name = "Virtual Device"
+mapping_in = [
+  { ch = 16, cc = 1, type = "cmd", command = "sim/autopilot/servos_toggle" },
+  { ch = 16, cc = 2, type = "cmd", command = "sim/flight_controls/park_brake_toggle" },
+]
+
+# Behringer X-Touch Mini
+[[device]]
+name       = "X-TOUCH MINI"
+port_in    = 1
+port_out   = 1
+sl_dataref = "xmidictrl/sublayer"
+#outbound_delay = 3
+#mode_out = "on_change"
+mapping_init = [
+  # Encoder Lights
+  { ch = 1, cc = 1, value = 1 },
+  { ch = 1, cc = 2, value = 2 },
+  { ch = 1, cc = 3, value = 3 },
+  { ch = 1, cc = 4, value = 4 },
+  { ch = 1, cc = 5, value = 4 },
+  { ch = 1, cc = 6, value = 3 },
+  { ch = 1, cc = 7, value = 2 },
+  { ch = 1, cc = 8, value = 1 }
+]
+mapping_in = [
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer A
+  #--------------------------------------------------------------------------------------------------------------------
+  
+  # Slider
+  #{ ch = 11, cc = 0,  type = "sld", command_up = "", command_middle = "", command_down = "" },
+  
+  # Encoders
+  { ch = 11, cc = 1, sl = "0", type = "enc", command_up = "sim/radios/rmu1/coarse_up", command_down = "sim/radios/rmu1/coarse_down" },
+  { ch = 11, cc = 1, sl = "1", type = "enc", command_up = "sim/radios/rmu1/fine_up", command_down = "sim/radios/rmu1/fine_down" },
+  { ch = 11, cc = 2,  type = "enc", command_up = "sim/instruments/barometer_up", command_down = "sim/instruments/barometer_down" },
+  { ch = 11, cc = 3,  type = "enc", command_up = "sim/instruments/minimum_up", command_down = "sim/instruments/minimum_down" },
+  { ch = 11, cc = 4,  type = "enc", command_up = "sim/instruments/map_zoom_in", command_down = "sim/instruments/map_zoom_out" },
+  { ch = 11, cc = 5,  type = "enc", command_up = "sim/radios/obs_HSI_up", command_down = "sim/radios/obs_HSI_down" },
+  { ch = 11, cc = 6,  type = "enc", command_up = "sim/autopilot/vertical_speed_up", command_down = "sim/autopilot/vertical_speed_down" },
+  { ch = 11, cc = 7,  type = "enc", command_up = "sim/autopilot/heading_up", command_down = "sim/autopilot/heading_down" },
+  { ch = 11, cc = 8, sl = "0", type = "enc", dataref = "sim/cockpit/autopilot/altitude", modifier_up = 1000, modifier_down = -1000 },
+  { ch = 11, cc = 8, sl = "1",  type = "enc", dataref = "sim/cockpit/autopilot/altitude", modifier_up = 100, modifier_down = -100 },
+  
+  # Encoder Buttons
+  { ch = 11, cc = 9,  type = "cmd", command = "xmidictrl/toggle_sublayer" },
+  { ch = 11, cc = 10, type = "cmd", command = "sim/instruments/barometer_std" },
+  #{ ch = 11, cc = 11, type = "cmd", command = "" },
+  #{ ch = 11, cc = 12, type = "cmd", command = "" },
+  { ch = 11, cc = 13, type = "cmd", command = "sim/radios/obs_HSI_direct" },
+  #{ ch = 11, cc = 14, type = "cmd", command = "" },
+  { ch = 11, cc = 15, type = "cmd", command = "sim/autopilot/heading_sync" },
+  { ch = 11, cc = 16, type = "cmd", command = "xmidictrl/toggle_sublayer" },
+  
+  # Buttons Upper Row
+  { ch = 11, cc = 17, type = "cmd", command = "sim/radios/rmu1/ls_1l" },
+  { ch = 11, cc = 18, type = "cmd", command = "sim/radios/rmu1/ls_1r" },
+  { ch = 11, cc = 19, type = "cmd", command = "sim/instruments/EFIS_mfd_map" },
+  { ch = 11, cc = 20, type = "cmd", command = "sim/instruments/EFIS_skp" },
+  { ch = 11, cc = 21, type = "cmd", command = "sim/autopilot/hsi_toggle_nav" },
+  { ch = 11, cc = 22, type = "cmd", command = "laminar/CitX/autopilot/cmd_vs_mode" },
+  { ch = 11, cc = 23, type = "cmd", command = "laminar/CitX/autopilot/cmd_hdg_mode" },
+  { ch = 11, cc = 24, type = "cmd", command = "laminar/CitX/autopilot/cmd_alt_mode" },
+  
+  # Buttons Lower Row
+  { ch = 11, cc = 25, type = "cmd", command = "sim/radios/rmu1/ls_2l" },
+  { ch = 11, cc = 26, type = "cmd", command = "sim/radios/rmu1/ls_2r" },
+  { ch = 11, cc = 27, type = "cmd", command = "sim/instruments/EFIS_wxr" },
+  { ch = 11, cc = 28, type = "cmd", command = "sim/instruments/EFIS_rcl" },
+  { ch = 11, cc = 29, type = "cmd", command = "sim/autopilot/hsi_toggle_gps" },
+  { ch = 11, cc = 30, type = "cmd", command = "laminar/CitX/autopilot/cmd_vnav_mode" },
+  { ch = 11, cc = 31, type = "cmd", command = "laminar/CitX/autopilot/cmd_nav_mode" },
+  { ch = 11, cc = 32, type = "cmd", command = "laminar/CitX/autopilot/cmd_app_mode" },
+  
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer B
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Slider
+  #{ ch = 11, cc = 50, type = "sld", command_up = "", command_middle = "", command_down = "" },
+  
+  # Encoders
+  { ch = 11, cc = 51, sl = "0", type = "enc", command_up = "sim/radios/rmu1/coarse_up", command_down = "sim/radios/rmu1/coarse_down" },
+  { ch = 11, cc = 51, sl = "1", type = "enc", command_up = "sim/radios/rmu1/fine_up", command_down = "sim/radios/rmu1/fine_down" },
+  { ch = 11, cc = 52,  type = "enc", command_up = "sim/instruments/barometer_up", command_down = "sim/instruments/barometer_down" },
+  { ch = 11, cc = 53,  type = "enc", command_up = "sim/instruments/minimum_up", command_down = "sim/instruments/minimum_down" },
+  { ch = 11, cc = 54,  type = "enc", command_up = "sim/instruments/map_zoom_in", command_down = "sim/instruments/map_zoom_out" },
+  { ch = 11, cc = 55,  type = "enc", command_up = "sim/radios/obs_HSI_up", command_down = "sim/radios/obs_HSI_down" },
+  { ch = 11, cc = 56,  type = "enc", command_up = "sim/autopilot/vertical_speed_up", command_down = "sim/autopilot/vertical_speed_down" },
+  { ch = 11, cc = 57,  type = "enc", command_up = "sim/autopilot/heading_up", command_down = "sim/autopilot/heading_down" },
+  { ch = 11, cc = 58, sl = "0", type = "enc", dataref = "sim/cockpit/autopilot/altitude", modifier_up = 1000, modifier_down = -1000 },
+  { ch = 11, cc = 58, sl = "1",  type = "enc", dataref = "sim/cockpit/autopilot/altitude", modifier_up = 100, modifier_down = -100 },
+  
+  # Encoder Buttons
+  { ch = 11, cc = 59,  type = "cmd", command = "xmidictrl/toggle_sublayer" },
+  { ch = 11, cc = 60, type = "cmd", command = "sim/instruments/barometer_std" },
+  #{ ch = 11, cc = 61, type = "cmd", command = "" },
+  #{ ch = 11, cc = 62, type = "cmd", command = "" },
+  { ch = 11, cc = 63, type = "cmd", command = "sim/radios/obs_HSI_direct" },
+  #{ ch = 11, cc = 64, type = "cmd", command = "" },
+  { ch = 11, cc = 65, type = "cmd", command = "sim/autopilot/heading_sync" },
+  { ch = 11, cc = 66, type = "cmd", command = "xmidictrl/toggle_sublayer" },
+
+  # Buttons Upper Row
+  { ch = 11, cc = 67, type = "cmd", command = "sim/radios/rmu1/ls_3r" },
+  { ch = 11, cc = 68, type = "cmd", command = "sim/radios/rmu1/ls_3l" },
+  { ch = 11, cc = 69, type = "cmd", command = "sim/radios/rmu1/ls_5l" },
+  { ch = 11, cc = 70, type = "cmd", command = "sim/instruments/EFIS_tcas" },
+  { ch = 11, cc = 71, type = "cmd", command = "sim/autopilot/hsi_toggle_preview" },
+  { ch = 11, cc = 72, type = "cmd", command = "sim/annunciator/clear_master_warning" },
+  #{ ch = 11, cc = 73, type = "cmd", command = "" },
+  { ch = 11, cc = 74, type = "cmd", command = "sim/lights/landing_lights_toggle" },
+  
+  # Buttons Lower Row
+  { ch = 11, cc = 75, type = "cmd", command = "sim/radios/rmu1/ls_4r" },
+  { ch = 11, cc = 76, type = "cmd", command = "sim/radios/rmu1/ls_4l" },
+  { ch = 11, cc = 77, type = "cmd", command = "sim/radios/rmu1/ls_6l" },
+  { ch = 11, cc = 78, type = "cmd", command = "sim/transponder/transponder_ident" },
+  { ch = 11, cc = 79, type = "cmd", command = "sim/autopilot/servos_toggle" },
+  { ch = 11, cc = 80, type = "cmd", command = "sim/annunciator/clear_master_caution" },
+  { ch = 11, cc = 81, type = "cmd", command = "sim/systems/seatbelt_sign_toggle" },
+  { ch = 11, cc = 82, type = "cmd", command = "sim/lights/taxi_lights_toggle" }
+]
+mapping_out = [
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer A
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Buttons Upper Row
+  #{ ch = 11, cc = 17, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 18, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 19, type = "drf", dataref = "sim/cockpit2/EFIS/map_mode", value_on = "4", value_off = "2" },
+  #{ ch = 11, cc = 20, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 21, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 22, type = "drf", dataref = "sim/cockpit2/autopilot/vvi_status", value_on = "2", value_off = "0" },
+  { ch = 11, cc = 23, type = "drf", dataref = "sim/cockpit2/autopilot/heading_status", value_on = "2", value_off = "1" },
+  { ch = 11, cc = 24, type = "drf", dataref = "sim/cockpit2/autopilot/altitude_hold_status", value_on = "2", value_off = "1" },
+
+  # Buttons Lower Row
+  #{ ch = 11, cc = 25, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 26, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 27, type = "drf", dataref = "sim/cockpit2/EFIS/EFIS_weather_on", value_on = "1", value_off = "0" },
+  #{ ch = 11, cc = 28, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 29, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 30, type = "drf", dataref = "sim/cockpit2/autopilot/fms_vnav", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 31, type = "drf", dataref = "sim/cockpit2/autopilot/nav_status", value_on = "2", value_off = "0" },
+  { ch = 11, cc = 32, type = "drf", dataref = "sim/cockpit2/autopilot/approach_status", value_on = "2", value_off = "0" },
+  { ch = 11, cc = 31, type = "drf", dataref = "sim/cockpit2/autopilot/nav_status", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 32, type = "drf", dataref = "sim/cockpit2/autopilot/approach_status", value_on = "1", value_off = "0" },
+
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer B
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Buttons Upper Row
+  #{ ch = 11, cc = 67, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 68, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 69, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 70, type = "drf", dataref = "sim/cockpit2/EFIS/EFIS_tcas_on", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 71, type = "drf", dataref = "sim/cockpit2/radios/actuators/HSI_preview_source_select_pilot", value_off = "0" },
+  { ch = 11, cc = 72, type = "drf", dataref = "laminar/CitX/annunciators/master_warning", value_on = "5", value_off = "0" },
+  #{ ch = 11, cc = 73, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 74, type = "drf", dataref = "sim/cockpit/electrical/landing_lights_on", value_on = "1", value_off = "0" },
+
+  # Buttons Lower Row
+  #{ ch = 11, cc = 75, type = "drf", dataref = "", value_on = "", value_off = "" }
+  #{ ch = 11, cc = 76, type = "drf", dataref = "", value_on = "", value_off = "" }
+  #{ ch = 11, cc = 77, type = "drf", dataref = "", value_on = "", value_off = "" }
+  #{ ch = 11, cc = 78, type = "drf", dataref = "", value_on = "", value_off = "" }
+  { ch = 11, cc = 79, type = "drf", dataref = "sim/cockpit2/annunciators/autopilot", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 80, type = "drf", dataref = "laminar/CitX/annunciators/master_caution", value_on = "5", value_off = "0" },
+  #{ ch = 11, cc = 81, type = "drf", dataref = "sim/cockpit/switches/fasten_seat_belts", value_on = "1", value_off = "0" },
+  #{ ch = 11, cc = 82, type = "drf", dataref = "sim/cockpit/electrical/taxi_light_on", value_on = "1", value_off = "0" },
+]

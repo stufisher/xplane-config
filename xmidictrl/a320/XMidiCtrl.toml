@@ -1,0 +1,173 @@
+# Virtual Device
+[virtual_device]
+name = "Virtual Device"
+mapping_in = [
+  { ch = 16, cc = 1, type = "cmd", command = "toliss_airbus/ap1_push" },
+  { ch = 16, cc = 2, type = "cmd", command = "toliss_airbus/park_brake_toggle" }
+]
+
+# Behringer X-Touch Mini
+[[device]]
+name       = "X-TOUCH MINI"
+port_in    = 1
+port_out   = 1
+sl_dataref = "xmidictrl/sublayer"
+#outbound_delay = 3
+#mode_out = "on_change"
+mapping_init = [
+  # Encoder Lights
+  { ch = 1, cc = 1, value = 1 },
+  { ch = 1, cc = 2, value = 2 },
+  { ch = 1, cc = 3, value = 3 },
+  { ch = 1, cc = 4, value = 4 },
+  { ch = 1, cc = 5, value = 4 },
+  { ch = 1, cc = 6, value = 3 },
+  { ch = 1, cc = 7, value = 2 },
+  { ch = 1, cc = 8, value = 1 }
+]
+mapping_in = [
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer A
+  #--------------------------------------------------------------------------------------------------------------------
+  
+  # Slider
+  { ch = 11, cc = 0,  type = "sld", dataref = "AirbusFBW/ALT100_1000", value_min = 0, value_max = 1 },
+  
+  # Encoders
+  { ch = 11, cc = 1, sl = "0", type = "enc", command_up = "AirbusFBW/RMP1FreqUpLrg", command_down = "AirbusFBW/RMP1FreqDownLrg" },
+  { ch = 11, cc = 1, sl = "1", type = "enc", command_up = "AirbusFBW/RMP1FreqUpSml", command_down = "AirbusFBW/RMP1FreqDownpSml" },
+  { ch = 11, cc = 2, type = "enc", command_up = "sim/instruments/barometer_up", command_down = "sim/instruments/barometer_down" },
+  { ch = 11, cc = 3, type = "enc", command_up = "sim/instruments/EFIS_mode_up", command_down = "sim/instruments/EFIS_mode_dn" },
+  { ch = 11, cc = 4, type = "enc", command_up = "sim/instruments/map_zoom_in", command_down = "sim/instruments/map_zoom_out" },
+  { ch = 11, cc = 5, type = "enc", command_up = "sim/autopilot/airspeed_up", command_down = "sim/autopilot/airspeed_down" },
+  { ch = 11, cc = 6, type = "enc", command_up = "sim/autopilot/vertical_speed_up", command_down = "sim/autopilot/vertical_speed_down" },
+  { ch = 11, cc = 7, type = "enc", command_up = "sim/autopilot/heading_up", command_down = "sim/autopilot/heading_down" },
+  { ch = 11, cc = 8, type = "enc", command_up = "sim/autopilot/altitude_up", command_down = "sim/autopilot/altitude_down" },
+  
+  # Encoder Buttons
+  { ch = 11, cc = 9,  type = "cmd", command = "xmidictrl/toggle_sublayer" },
+  { ch = 11, cc = 10, type = "cmd", command = "sim/instruments/barometer_std" },
+  #{ ch = 11, cc = 11, type = "cmd", command = "" },
+  #{ ch = 11, cc = 12, type = "cmd", command = "" },
+  { ch = 11, cc = 13, type = "pnp", command_pull = "AirbusFBW/PullSPDSel", command_push = "AirbusFBW/PushSPDSel" },
+  { ch = 11, cc = 14, type = "pnp", command_pull = "AirbusFBW/PullVSSel", command_push = "AirbusFBW/PushVSSel" },
+  { ch = 11, cc = 15, type = "pnp", command_pull = "AirbusFBW/PullHDGSel", command_push = "AirbusFBW/PushHDGSel" },
+  { ch = 11, cc = 16, type = "pnp", command_pull = "AirbusFBW/PullAltitude", command_push = "AirbusFBW/PushAltitude" },
+  
+  # Buttons Upper Row
+  { ch = 11, cc = 17, type = "cmd", command = "AirbusFBW/RMPSwapCapt" },
+  { ch = 11, cc = 18, type = "drf", dataref = "AirbusFBW/XPDRPower", value_on = "4", value_off = "0" },
+  { ch = 11, cc = 19, type = "cmd", command = "toliss_airbus/fd1_push" },
+  { ch = 11, cc = 20, type = "cmd", command = "toliss_airbus/dispcommands/CaptLSButtonPush" },
+  { ch = 11, cc = 21, type = "cmd", command = "AirbusFBW/ATHRbutton" },
+  { ch = 11, cc = 22, type = "cmd", command = "AirbusFBW/APPRbutton" },
+  { ch = 11, cc = 23, type = "cmd", command = "AirbusFBW/LOCbutton" },
+  { ch = 11, cc = 24, type = "cmd", command = "AirbusFBW/EXPEDbutton" },
+  
+  # Buttons Lower Row
+  { ch = 11, cc = 25, type = "pnp", command_push = "sim/flight_controls/brakes_max_auto", command_pull = "sim/flight_controls/brakes_off_auto" },
+  { ch = 11, cc = 26, type = "cmd", command = "sim/flight_controls/speed_brakes_arm_toggle" },
+  { ch = 11, cc = 27, type = "cmd", command = "toliss_airbus/dispcommands/CaptCstrPushButton" },
+  { ch = 11, cc = 28, type = "pnp", command_push = "toliss_airbus/dispcommands/TerrOnND1On", command_pull = "toliss_airbus/dispcommands/TerrOnND1Off" },
+  { ch = 11, cc = 29, type = "cmd", command = "toliss_airbus/ap1_push" },
+  { ch = 11, cc = 30, type = "cmd", command = "toliss_airbus/ap2_push" },
+  { ch = 11, cc = 31, type = "cmd", command = "sim/annunciator/clear_master_caution" },
+  { ch = 11, cc = 32, type = "cmd", command = "sim/annunciator/clear_master_warning" },
+  
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer B
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Slider
+  #{ ch = 11, cc = 50, type = "sld", command_up = "", command_middle = "", command_down = "" },
+  
+  # Encoders
+  #{ ch = 11, cc = 51, sl = "0", type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 51, sl = "1", type = "enc", command_up = "", command_down = "" },
+  # ch = 11, cc = 52,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 53,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 54,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 55,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 56,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 57,  type = "enc", command_up = "", command_down = "" },
+  #{ ch = 11, cc = 58,  type = "enc", command_up = "", command_down = "" },
+  
+  # Encoder Buttons
+  #{ ch = 11, cc = 59,  type = "cmd", command = "xmidictrl/toggle_sublayer" },
+  #{ ch = 11, cc = 60, type = "cmd", command = "" },
+  #{ ch = 11, cc = 61, type = "cmd", command = "" },
+  #{ ch = 11, cc = 62, type = "cmd", command = "" },
+  #{ ch = 11, cc = 63, type = "cmd", command = "" },
+  #{ ch = 11, cc = 64, type = "cmd", command = "" },
+  #{ ch = 11, cc = 65, type = "cmd", command = "" },
+  #{ ch = 11, cc = 66, type = "cmd", command = "" },
+
+  # Buttons Upper Row
+  #{ ch = 11, cc = 67, type = "cmd", command = "" },
+  #{ ch = 11, cc = 68, type = "cmd", command = "" },
+  { ch = 11, cc = 69, type = "cmd", command = "toliss_airbus/dispcommands/CaptWptPushButton" },
+  { ch = 11, cc = 70, type = "cmd", command = "toliss_airbus/dispcommands/CaptVorDPushButton" },
+  { ch = 11, cc = 71, type = "cmd", command = "AirbusFBW/ECP/SelectAPUPage" },
+  { ch = 11, cc = 72, type = "cmd", command = "AirbusFBW/ECP/SelectConditioningPage" },
+  { ch = 11, cc = 73, type = "cmd", command = "AirbusFBW/ECP/SelectDoorOxyPage" },
+  { ch = 11, cc = 74, type = "cmd", command = "AirbusFBW/ECP/SelectWheelPage" },
+  
+  # Buttons Lower Row
+  { ch = 11, cc = 75, type = "cmd", command = "toliss_airbus/apucommands/MasterToggle" },
+  { ch = 11, cc = 76, type = "cmd", command = "toliss_airbus/apucommands/StarterToggle" },
+  { ch = 11, cc = 77, type = "cmd", command = "toliss_airbus/dispcommands/CaptNdbPushButton" },
+  { ch = 11, cc = 78, type = "cmd", command = "toliss_airbus/dispcommands/CaptArptPushButton" },
+  #{ ch = 11, cc = 79, type = "cmd", command = "" },
+  { ch = 11, cc = 80, type = "cmd", command = "toliss_airbus/lightcommands/FSBSignToggle" },
+  # { ch = 11, cc = 81, type = "cmd", command = "" },
+  # { ch = 11, cc = 82, type = "cmd", command = "" }
+]
+mapping_out = [
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer A
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Buttons Upper Row
+  #{ ch = 11, cc = 17, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 18, type = "drf", dataref = "AirbusFBW/XPDRPower", value_on = "4", value_off = "0" },
+  { ch = 11, cc = 19, type = "drf", dataref = "AirbusFBW/FD1Engage", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 20, type = "drf", dataref = "AirbusFBW/ILSonCapt", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 21, type = "drf", dataref = "AirbusFBW/ATHRmode", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 22, type = "drf", dataref = "AirbusFBW/APPRilluminated", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 23, type = "drf", dataref = "AirbusFBW/LOCilluminated", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 24, type = "drf", dataref = "sim/cockpit2/autopilot/altitude_hold_status", value_on = "2", value_off = "1" },
+
+  # Buttons Lower Row
+  { ch = 11, cc = 25, type = "drf", dataref = "AirbusFBW/AutoBrkMax", value_on = "1", value_off = "0" },
+  #{ ch = 11, cc = 26, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 27, type = "drf", dataref = "AirbusFBW/NDShowCSTRCapt", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 28, type = "drf", dataref = "AirbusFBW/TerrainSelectedND1", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 29, type = "drf", dataref = "AirbusFBW/AP1Engage", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 30, type = "drf", dataref = "AirbusFBW/AP2Engage", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 31, type = "drf", dataref = "AirbusFBW/MasterCaut", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 32, type = "drf", dataref = "AirbusFBW/MasterWarn", value_on = "1", value_off = "0" },
+
+  #--------------------------------------------------------------------------------------------------------------------
+  # Layer B
+  #--------------------------------------------------------------------------------------------------------------------
+
+  # Buttons Upper Row
+  #{ ch = 11, cc = 67, type = "drf", dataref = "", value_on = "", value_off = "" },
+  #{ ch = 11, cc = 68, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 69, type = "drf", dataref = "AirbusFBW/NDShowWPTCapt", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 70, type = "drf", dataref = "AirbusFBW/NDShowVORDCapt", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 71, type = "drf", dataref = "AirbusFBW/SDAPU", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 72, type = "drf", dataref = "AirbusFBW/SDCOND", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 73, type = "drf", dataref = "AirbusFBW/SDDOOR", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 74, type = "drf", dataref = "AirbusFBW/SDWHEEL", value_on = "1", value_off = "0" },
+
+  # Buttons Lower Row
+  { ch = 11, cc = 75, type = "drf", dataref = "AirbusFBW/APUMaster", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 76, type = "drf", dataref = "AirbusFBW/APUStarter", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 77, type = "drf", dataref = "AirbusFBW/NDShowNDBCapt", value_on = "1", value_off = "0" },
+  { ch = 11, cc = 78, type = "drf", dataref = "AirbusFBW/NDShowARPTCapt", value_on = "1", value_off = "0" },
+  #{ ch = 11, cc = 79, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 80, type = "drf", dataref = "AirbusFBW/SeatBeltSignsOn", value_on = "1", value_off = "0" },
+  # { ch = 11, cc = 81, type = "drf", dataref = "", value_on = "1", value_off = "0" },
+  # { ch = 11, cc = 82, type = "drf", dataref = "", value_on = "1", value_off = "0" },
+]
