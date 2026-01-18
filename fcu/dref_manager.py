@@ -235,9 +235,7 @@ if __name__ == "__main__":
                         dref[1] *= 33.864
                     if dref[0] in [2, 4]:
                         dref[1] = round(dref[1])
-                    if client_state.refresh_all:
-                        changed.append(dref)
-                    elif dref[0] in dref_buffer:
+                    if dref[0] in dref_buffer:
                         if dref[1] != dref_buffer[dref[0]]:
                             changed.append(dref)
                     else:
@@ -250,8 +248,14 @@ if __name__ == "__main__":
                         bytes += struct.pack("<if", value[0], value[1])
                     # print(changed)
                     esp_sock.sendto(bytes, (args.esp_ip, args.esp_port))
-                    if client_state.refresh_all:
-                        client_state.refresh_all = False
+
+                if client_state.refresh_all:
+                    logger.info("Refresh all")
+                    bytes = b"RREF,"
+                    for key, value in dref_buffer.items():
+                        bytes += struct.pack("<if", key, value)
+                    esp_sock.sendto(bytes, (args.esp_ip, args.esp_port))
+                    client_state.refresh_all = False
 
     except KeyboardInterrupt:
         with client_state.lock:

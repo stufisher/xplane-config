@@ -44,7 +44,7 @@ mapping_in = [
   
   # Encoder Buttons
   { ch = 11, cc = 9, type = "cmd", command = "xmidictrl/toggle_sublayer" },
-  { ch = 11, cc = 10, type = "cmd", command = "sim/instruments/barometer_std" },
+  { ch = 11, cc = 10, type = "pnp", command_push = "toliss_airbus/capt_baro_push", command_pull = "toliss_airbus/capt_baro_pull" },
   { ch = 11, cc = 11, type = "pnp", command_push = "toliss_airbus/WXRadarSwitchLeft", command_pull = "toliss_airbus/WXRadarSwitchRight" },
   { ch = 11, cc = 12, type = "drf", dataref = "AirbusFBW/WXSwitchMode", values = ["0", "1", "2", "3"] },
   { ch = 11, cc = 13, type = "pnp", command_pull = "AirbusFBW/PullSPDSel", command_push = "AirbusFBW/PushSPDSel" },
@@ -93,9 +93,9 @@ mapping_in = [
   
   # Encoder Buttons
   { ch = 11, cc = 59, type = "cmd", command = "xmidictrl/toggle_sublayer" },
-  { ch = 11, cc = 60, type = "cmd", command = "sim/instruments/barometer_std" },
-  #{ ch = 11, cc = 61, type = "cmd", command = "" },
-  #{ ch = 11, cc = 62, type = "cmd", command = "" },
+  { ch = 11, cc = 60, type = "pnp", command_push = "toliss_airbus/capt_baro_push", command_pull = "toliss_airbus/capt_baro_pull" },
+  { ch = 11, cc = 61, type = "pnp", command_push = "toliss_airbus/WXRadarSwitchLeft", command_pull = "toliss_airbus/WXRadarSwitchRight" },
+  { ch = 11, cc = 62, type = "drf", dataref = "AirbusFBW/WXSwitchMode", values = ["0", "1", "2", "3"] },
   { ch = 11, cc = 63, type = "pnp", command_pull = "AirbusFBW/PullSPDSel", command_push = "AirbusFBW/PushSPDSel" },
   { ch = 11, cc = 64, type = "pnp", command_pull = "AirbusFBW/PullVSSel", command_push = "AirbusFBW/PushVSSel" },
   { ch = 11, cc = 65, type = "pnp", command_pull = "AirbusFBW/PullHDGSel", command_push = "AirbusFBW/PushHDGSel" },
@@ -137,7 +137,7 @@ mapping_out = [
   { ch = 11, cc = 21, type = "drf", dataref = "AirbusFBW/ATHRmode", value_on = "2", value_off = "0" },
   { ch = 11, cc = 22, type = "drf", dataref = "AirbusFBW/APPRilluminated", value_on = "1", value_off = "0" },
   { ch = 11, cc = 23, type = "drf", dataref = "AirbusFBW/LOCilluminated", value_on = "1", value_off = "0" },
-  { ch = 11, cc = 24, type = "drf", dataref = "sim/cockpit2/autopilot/altitude_hold_status", value_on = "2", value_off = "1" },
+  { ch = 11, cc = 24, type = "drf", dataref = "AirbusFBW/APVerticalMode", value_on = "111", value_off = "0" },
 
   # Buttons Lower Row
   { ch = 11, cc = 25, type = "drf", dataref = "AirbusFBW/AutoBrkMax", value_on = "1", value_off = "0" },

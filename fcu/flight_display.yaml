@@ -34,6 +34,7 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  power_save_mode: none
 
   ap:
     ssid: "FD 1 Fallback Hotspot"
@@ -260,12 +261,14 @@ udp:
               for (uint8_t j = 0; j < num_structs; j += 1)
               {
                 auto sensor = sensors.find(f[j].idx);
-                float value = f[j].val;
-                float current = sensor->second->state;
-                //ESP_LOGI("SENSOR", "%f %s", current, sensor->second->get_name());
-                if (value != current)
-                {
-                  sensor->second->publish_state(value);
+                if (sensor != sensors.end()) {
+                  float value = f[j].val;
+                  float current = sensor->second->state;
+                  //ESP_LOGI("SENSOR", "%f %s", current, sensor->second->get_name());
+                  if (value != current)
+                  {
+                    sensor->second->publish_state(value);
+                  }
                 }
               }
             }
