@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plan"
+version = "2025.1.0"
+
+dependencies = [
+  "httpx",
+  "airports-py",
+  "metar",
+  "nicegui"
+]
+
+[project.scripts]
+plan = "plan.plan:run"
+plan-ui = "plan.ui:main"
