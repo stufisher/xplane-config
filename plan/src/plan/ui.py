@@ -1,10 +1,13 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import logging
+import os
 
 from nicegui import ui, app
+from nicegui.element import Element
 
 from .plan import Plan
+from .udp import UDP
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,64 +34,166 @@ def disable(button: ui.button):
         button.enable()
 
 
+class LogElementHandler(logging.Handler):
+    """A logging handler that emits messages to a log element."""
+
+    def __init__(self, element: ui.log, level: int = logging.NOTSET) -> None:
+        self.element = element
+        super().__init__(level)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self.element.push(msg)
+        except Exception:
+            self.handleError(record)
+
+
+class Row(Element):
+    def __init__(self) -> None:
+        super().__init__(tag="div")
+        # self.style("display: flex; flex: 1; gap: var(--nicegui-default-gap);")
+        self.classes("flex flex-1 gap-(--nicegui-default-gap)")
+
+
+class Col(Element):
+    def __init__(self, gap=1) -> None:
+        super().__init__(tag="div")
+        # self.style(f"flex-direction: column; display: flex; flex: 1; gap: {gap}rem")
+        self.classes(f"flex-col flex flex-1 gap-{gap*3}")
+
+
+class Card(ui.card):
+    def __init__(self, grow=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # self.style("gap: 0.5rem; align-items: normal;" + (" flex: 1; " if grow else ""))
+        self.style("align-items: normal")
+        self.classes("items-baseline gap-1" + (" flex-1" if grow else ""))
+
+
 class UI:
     def __init__(self):
         self._plan = Plan()
+        self._udp = UDP()
         self._background_running = True
         self._map_markers = []
 
     async def main(self):
         await self._plan._init()
+        app.on_shutdown(self._plan.shutdown)
+        app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
         ui.page_title("X-Plane")
 
-        with ui.row():
-            with ui.column():
-                with ui.row():
-                    self._plan_select = ui.select([], on_change=self.select_plan)
-                    ui.button("", icon="refres", on_click=lambda: self.update_plans())
+        @ui.page("/")
+        async def page():
+            if 1:
+                dark = ui.dark_mode()
+                dark.enable()
+                ui.add_css(
+                    ".leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution, .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }"
+                )
 
-                with ui.row():
-                    self._flight_no = ui.input("A123", placeholder="Flight No.")
-                    self._cruise_alt = ui.input(
-                        None, placeholder="Cruise Alt", prefix="FL"
-                    )
-                    ui.button("MCDU Init", on_click=lambda e: self.init_mcdu(e.sender))
+            ui.add_css(
+                """@font-face{
+            font-family: "DSEG7";
+            src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }"""
+            )
+            ui.add_css(".nicegui-markdown p { margin-top: 0 } ")
+            ui.query(".nicegui-content").classes("flex-row")
 
-                current_time_label = ui.label()
-                self._plan_detail = ui.label("")
+            with Row():
+                with Col():
+                    with Card():
+                        with Row():
+                            self._plan_select = ui.select(
+                                [], on_change=self.select_plan
+                            ).classes("flex-1")
+                            ui.button(
+                                icon="refresh",
+                                on_click=lambda e: self.update_plans(),
+                            )
+                        with Row():
+                            self._flight_no = ui.input(
+                                "Flight No.", value="A123", placeholder="Flight No."
+                            )
+                            self._cruise_alt = ui.input(
+                                "Cruise Alt.",
+                                value="",
+                                placeholder="Cruise Alt",
+                                prefix="FL",
+                            )
+                    with Card(grow=True):
+                        with Row():
+                            with Col(gap=0):
+                                time_label = ui.label("12:34").style(
+                                    "font-family: DSEG7;"
+                                )
+                                ui.timer(
+                                    1.0,
+                                    lambda: time_label.set_text(
+                                        f"{datetime.now(timezone.utc):%X} UTC"
+                                    ),
+                                )
+                                self._plan_detail = ui.markdown("").classes("flex-1")
 
-                ui.label("Departure Weather")
-                self.dep_weather = ui.markdown("")
+                            ui.button(
+                                icon="computer",
+                                on_click=lambda e: self.init_mcdu(e.sender),
+                            )
+                            ui.button(
+                                icon="connecting_airports", on_click=self.move_aircraft
+                            )
+                        with Row():
+                            self._route = ui.input("Route", value="").classes("flex-1")
+                            ui.button(
+                                icon="content_paste",
+                                on_click=lambda: ui.clipboard.write(self._route.value),
+                            )
+                        with Row():
+                            with Col(gap=0):
+                                with Row():
+                                    ui.icon("flight_takeoff").classes("text-2xl")
+                                    self.dep_time = ui.label("18:10")
+                                self.dep_weather = ui.markdown("-4c mist 1016mb")
 
-                ui.label("Desination Weather")
-                self.des_weather = ui.markdown("")
+                            with Col(gap=0):
+                                with Row():
+                                    ui.icon("flight_land").classes("text-2xl")
+                                    self.des_time = ui.label("18:20")
+                                self.des_weather = ui.markdown("6c hail 999mb")
 
-            with ui.element("div"):
-                loc = await self._plan.location
-                self._map = ui.leaflet(
-                    center=(loc.latitude, loc.longitude),
-                    additional_resources=[
-                        "https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js",
-                    ],
-                ).style("width: 450px; height: 450px")
+                    with Card(grow=True):
+                        log = ui.log(max_lines=5).style("height: 80px")
+                        handler = LogElementHandler(log)
+                        logging.getLogger().addHandler(handler)
+                        ui.context.client.on_disconnect(
+                            lambda: logger.removeHandler(handler)
+                        )
 
-        self.update_plans()
+                with Card(grow=True):
+                    loc = await self._plan.location
 
-        ui.timer(
-            1.0,
-            lambda: current_time_label.set_text(f"{datetime.now(timezone.utc):%X} UTC"),
-        )
-        ui.timer(10, lambda: self._background_task())
+                    self._map = ui.leaflet(
+                        center=(loc.latitude, loc.longitude),
+                        additional_resources=[
+                            "https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js",
+                        ],
+                    ).classes("flex-1")
 
-        self._aircraft_marker = self._map.marker(
-            latlng=(loc.latitude, loc.longitude),
-            options={
-                "rotationOrigin": "center center",
-                "rotationAngle": loc.psi - 45,
-            },
-        )
-        await self._map.initialized()
-        self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
+            self.update_plans()
+            ui.timer(10, lambda: self._background_task())
+            self._aircraft_marker = self._map.marker(
+                latlng=(loc.latitude, loc.longitude),
+                options={
+                    "rotationOrigin": "center center",
+                    "rotationAngle": loc.psi - 45,
+                },
+            )
+            await self._map.initialized()
+            self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
     def update_plans(self):
         opts = {}
@@ -117,32 +222,40 @@ class UI:
 
     def update_weather(self):
         if self._plan.weather_des:
-            self.des_weather.content = f"""{self._plan.weather_des.time}\n
-{self._plan.weather_des.temp.string('C')} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()} 
-
-"""
+            self.des_time.set_text(self._plan.weather_des.time)
+            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
         if self._plan.weather_dep:
-            self.dep_weather.content = f"""{self._plan.weather_dep.time}\n
-{self._plan.weather_dep.temp.string('C')} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}
-"""
+            self.dep_time.set_text(self._plan.weather_dep.time)
+            self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
 
-    def select_plan(self, change_event):
+    async def select_plan(self, change_event):
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.set_text(
-            f"DEPRWY: {self._plan.current['DEPRWY']} SID: {self._plan.current['SID']} STAR: {self._plan.current.get('STAR')} APP: {self._plan.current.get('APP')} DESRWY: {self._plan.current['DESRWY']}"
-        )
+        self._plan_detail.content = f"**DEPRWY**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRWY**: {self._plan.current['DESRWY']}"
+
         self._cruise_alt.value = self._plan.cruise
 
         for marker in self._map_markers:
             self._map.remove_layer(marker)
         self._map_markers = []
 
+        # await self._map.initialized()
+
+        route = []
         for waypoint in self._plan.current["waypoints"]:
+            route.append(waypoint.name)
             marker = self._map.marker(latlng=(waypoint.latitude, waypoint.longitude))
             self._map_markers.append(marker)
             marker.run_method(":setIcon", ICON_DIAMOND)
+
+        self._route.value = " ".join(route)
+
+    def move_aircraft(self):
+        runway = self._plan.current["DEPRWY"]
+        icao_code = self._plan.current["ADEP"]
+        if runway and icao_code:
+            self._udp.move_aircraft(icao_code, runway)
 
     async def shutdown(self):
         await self._plan.shutdown()
@@ -151,7 +264,7 @@ class UI:
 def main(reload=False):
     ui_inst = UI()
     app.on_shutdown(ui_inst.shutdown)
-    ui.run(ui_inst.main, show=False)
+    ui.run(ui_inst.main, show=False, reload=reload)
 
 
 if __name__ in {"__main__", "__mp_main__"}:

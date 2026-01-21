@@ -66,6 +66,7 @@ class Plan:
         return self._weather.get_forecast(self._plan["ADEP"])
 
     async def mcdu_init(self, cost=10, flt_number="A123", cruise_alt=350):
+        logger.info("MCDU: Init")
         await self._rest.press_button("INIT")
         await self._rest.write_scratchpad(self._plan["ADEP"] + "/" + self._plan["ADES"])
         await self._rest.press_button("1R")
@@ -80,10 +81,12 @@ class Plan:
         await self._rest.press_button("6L")
 
         # IRS Init
+        logger.info("MCDU: IRS Init")
         await self._rest.press_button("3R")
         await self._rest.press_button("6L")
 
         # Wind Req
+        logger.info("MCDU: Wind request")
         await self._rest.press_button("4R")
         await self._rest.press_button("3R")
         await self._rest.press_button("6L")
@@ -94,6 +97,7 @@ class Plan:
         await asyncio.sleep(0.2)
         await self._rest.press_button("1L")
         dep_runway = self._plan["DEPRWY"].replace("RW", "")
+        logger.info(f"MCDU: Setting departure runway {dep_runway}")
         row_id = await self._rest.find_row_in_display(dep_runway)
         if row_id is not None:
             await self._rest.press_button(f"{row_id+1}L")
@@ -101,6 +105,7 @@ class Plan:
             logger.warning(f"Could not set departure runway `{dep_runway}`")
 
         sid = self._plan["SID"]
+        logger.info(f"MCDU: Setting departure SID {sid}")
         row_id = await self._rest.find_row_in_display(sid)
         if row_id is not None:
             await self._rest.press_button(f"{row_id+1}L")
@@ -116,6 +121,7 @@ class Plan:
 
         # Approach
         app = self._plan["APP"]
+        logger.info(f"MCDU: Setting arrival approach {app}")
         if app.startswith("L"):
             app = app.replace("L", "LOC")
         if app.startswith("I"):
@@ -131,6 +137,7 @@ class Plan:
         # Star
         star = self._plan.get("STAR")
         if star:
+            logger.info(f"MCDU: Setting arrival STAR {star}")
             row_id = await self._rest.find_row_in_display(star)
             if row_id is not None:
                 await self._rest.press_button(f"{row_id+1}L")
@@ -151,7 +158,7 @@ class Plan:
                 "MANUAL", color="g", iterate=False
             )
             if manual_id is None:
-                logger.info("Removing discontinuity")
+                logger.info("MCDU: Removing discontinuity")
                 await self._rest.press_button("CLR")
                 await self._rest.press_button(f"{row_id+1}L")
                 await self._rest.press_button("6R")
@@ -159,6 +166,7 @@ class Plan:
                 logger.info("Not removing discontinuity, part of manual")
 
     async def mcdu_perf(self, to_flaps="1/UP0.0", flex=73):
+        logger.info(f"MCDU: Setting PERF")
         await self._rest.press_button("PERF")
         await self._rest.write_scratchpad(to_flaps)
         await self._rest.press_button("3R")
