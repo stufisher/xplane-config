@@ -181,6 +181,11 @@ class Plan:
         await self._rest.press_button("FPLN")
 
     @property
+    async def time(self):
+        seconds = await self._rest.get_dataref("sim/time/zulu_time_sec")
+        return seconds
+
+    @property
     async def location(self):
         latitude = await self._rest.get_dataref("sim/flightmodel/position/latitude")
         longitude = await self._rest.get_dataref("sim/flightmodel/position/longitude")

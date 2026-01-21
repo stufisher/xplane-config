@@ -1,4 +1,4 @@
-# import asyncio
+import asyncio
 import base64
 import logging
 import time
@@ -95,10 +95,12 @@ class REST:
         dref = self.__datarefs[dataref]
         resp = await self._client.patch(
             self._base_url + self._datarefs + "/" + str(dref["id"]) + "/value",
-            data={"data": value},
+            json={"data": value},
         )
         if resp.status_code == 200:
             return True
+        else:
+            raise RuntimeError(f"{resp.status_code}: {resp.json()}")
 
     async def execute_command(self, command: str):
         command_id = self.__commands[command]
@@ -192,4 +194,11 @@ if __name__ == "__main__":
     # rest.clear_scratchpad()
     # rest.write_scratchpad("LOWS/LSGG")
     # rest.press_button("1R")
-    rest.read_display()
+    loop = asyncio.new_event_loop()
+
+    async def moo():
+        await rest._init()
+        value = await rest.get_dataref("sim/time/zulu_time_sec")
+        print(value)
+        # await rest.set_dataref("toliss_airbus/performance/VR", 145)
+    loop.run_until_complete(moo())

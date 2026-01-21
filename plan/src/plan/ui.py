@@ -128,15 +128,10 @@ class UI:
                     with Card(grow=True):
                         with Row():
                             with Col(gap=0):
-                                time_label = ui.label("12:34").style(
+                                self._time_label = ui.label("12:34").style(
                                     "font-family: DSEG7;"
                                 )
-                                ui.timer(
-                                    1.0,
-                                    lambda: time_label.set_text(
-                                        f"{datetime.now(timezone.utc):%X} UTC"
-                                    ),
-                                )
+                                ui.timer(1.0, self.update_time)
                                 self._plan_detail = ui.markdown("").classes("flex-1")
 
                             ui.button(
@@ -222,22 +217,31 @@ class UI:
 
     def update_weather(self):
         if self._plan.weather_des:
-            self.des_time.set_text(self._plan.weather_des.time)
-            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
+            self.des_time.set_text(f"{self._plan.weather_des.time:%H:%M}")
+            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')}, {self._plan.weather_des.wind()}, {self._plan.weather_des.visibility()} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
         if self._plan.weather_dep:
-            self.dep_time.set_text(self._plan.weather_dep.time)
-            self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
+            self.dep_time.set_text(f"{self._plan.weather_dep.time:%H:%M}")
+            self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')}, {self._plan.weather_dep.wind()}, {self._plan.weather_dep.visibility()} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
+
+    async def update_time(self):
+        zulu_seconds = await self._plan.time
+        hours, remain = divmod(int(zulu_seconds), 3600)
+        minutes, seconds = divmod(remain, 60)
+        self._time_label.set_text(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
 
     async def select_plan(self, change_event):
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.content = f"**DEPRWY**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRWY**: {self._plan.current['DESRWY']}"
+        self._plan_detail.content = f"**RW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **RW**: {self._plan.current['DESRWY']}"
 
         self._cruise_alt.value = self._plan.cruise
 
         for marker in self._map_markers:
-            self._map.remove_layer(marker)
+            try:
+                self._map.remove_layer(marker)
+            except Exception:
+                logger.debug("Could not remove existing marker")
         self._map_markers = []
 
         # await self._map.initialized()
