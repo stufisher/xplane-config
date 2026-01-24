@@ -138,6 +138,7 @@ mapping_out = [
   { ch = 11, cc = 22, type = "drf", dataref = "AirbusFBW/APPRilluminated", value_on = "1", value_off = "0" },
   { ch = 11, cc = 23, type = "drf", dataref = "AirbusFBW/LOCilluminated", value_on = "1", value_off = "0" },
   { ch = 11, cc = 24, type = "drf", dataref = "AirbusFBW/APVerticalMode", value_on = "111", value_off = "0" },
+  { ch = 11, cc = 24, type = "drf", dataref = "AirbusFBW/APVerticalMode", value_on = "112", value_off = "0" },
 
   # Buttons Lower Row
   { ch = 11, cc = 25, type = "drf", dataref = "AirbusFBW/AutoBrkMax", value_on = "1", value_off = "0" },
