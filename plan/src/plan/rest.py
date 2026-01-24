@@ -63,25 +63,59 @@ class REST:
         self.__commands = {}
         self.__datarefs = {}
 
-    async def _init(self):
-        resp = await self._client.get(self._base_url + self._commands)
-        if resp.status_code == 200:
-            for row in resp.json()["data"]:
-                self.__commands[row["name"]] = row["id"]
+        self._xplane_running = False
 
-        resp = await self._client.get(self._base_url + self._datarefs)
-        if resp.status_code == 200:
-            for row in resp.json()["data"]:
-                self.__datarefs[row["name"]] = {
-                    "id": row["id"],
-                    "type": row["value_type"],
-                }
+    async def _init(self):
+        await self.resolve_rest()
+
+    async def resolve_rest(self):
+        try:
+            resp = await self._client.get(self._base_url + self._commands)
+            if resp.status_code == 200:
+
+                for row in resp.json()["data"]:
+                    self.__commands[row["name"]] = row["id"]
+
+            resp = await self._client.get(self._base_url + self._datarefs)
+            if resp.status_code == 200:
+                for row in resp.json()["data"]:
+                    self.__datarefs[row["name"]] = {
+                        "id": row["id"],
+                        "type": row["value_type"],
+                    }
+            self._xplane_running = True
+            logger.info("Initialilsed REST mapping")
+        except httpx.ConnectError:
+            if self._xplane_running:
+                logger.warning("X-Plane is offline")
+                self.__commands = []
+                self.__datarefs = []
+            self._xplane_running = False
+
+    @property
+    def online(self):
+        return self._xplane_running
 
     async def get_dataref(self, dataref: str):
-        dref = self.__datarefs[dataref]
-        resp = await self._client.get(
-            self._base_url + self._datarefs + "/" + str(dref["id"]) + "/value"
-        )
+        if not self._xplane_running:
+            await self.resolve_rest()
+            if not self._xplane_running:
+                return
+        try:
+            dref = self.__datarefs[dataref]
+        except KeyError:
+            logger.info("X-Plane started but simulator not yet running")
+            await asyncio.sleep(5)
+            self._xplane_running = False
+            return
+
+        try:
+            resp = await self._client.get(
+                self._base_url + self._datarefs + "/" + str(dref["id"]) + "/value"
+            )
+        except httpx.ReadTimeout:
+            logger.info("Timeout waiting for REST API")
+            return
         if resp.status_code == 200:
             result = resp.json()["data"]
             if dref["type"] == "data":
@@ -89,6 +123,8 @@ class REST:
             return result
 
     async def set_dataref(self, dataref: str, value: any):
+        if not self._xplane_running:
+            return
         if isinstance(value, str):
             value = base64.b64encode(value)
 
@@ -103,6 +139,8 @@ class REST:
             raise RuntimeError(f"{resp.status_code}: {resp.json()}")
 
     async def execute_command(self, command: str):
+        if not self._xplane_running:
+            return
         command_id = self.__commands[command]
         resp = await self._client.post(
             self._base_url + "/command/" + str(command_id) + "/activate",
@@ -198,7 +236,13 @@ if __name__ == "__main__":
 
     async def moo():
         await rest._init()
-        value = await rest.get_dataref("sim/time/zulu_time_sec")
-        print(value)
+        # value = await rest.get_dataref("sim/time/zulu_time_sec")
+        # print(value)
         # await rest.set_dataref("toliss_airbus/performance/VR", 145)
+        # value = await rest.get_dataref("toliss_airbus/init/ZFW")
+        value = await rest.get_dataref("sim/flightmodel/weight/m_total")
+        value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z")
+        value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z_mac")
+        print(value)
+
     loop.run_until_complete(moo())

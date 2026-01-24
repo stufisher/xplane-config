@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+import logging
+import math
 import os
+
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_APD_PATH = os.path.expanduser(
     "~/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat"
 )
-
-print(DEFAULT_APD_PATH)
 
 TEST_DATA = """
 1    21 1 0 KBFI Boeing Field King Co Intl
@@ -28,6 +31,16 @@ class Runway:
     rwy_dir: int
     lat: float
     lon: float
+
+
+@dataclass
+class HeadingLength:
+    heading: int
+    length: int
+
+
+def deg2rad(deg: float):
+    return deg * math.pi / 180
 
 
 class APT:
@@ -76,7 +89,50 @@ class APT:
             name = name.replace("RW", "")
         return runways[name]
 
+    def get_runway_headin_and_length(self, icao_code: str, name: str):
+        runway = self.get_runway_idx_dir(icao_code, name)
+        runways = self._airports[icao_code]
+        opposite_runway = None
+        for rw in runways.values():
+            if rw.rwy_idx == runway.rwy_idx and rw.rwy_dir != runway.rwy_dir:
+                opposite_runway = rw
+                break
+
+        if not opposite_runway:
+            logger.info(f"Couldnt find opposite runway for {icao_code} {name}")
+            return
+
+        phi1 = deg2rad(runway.lat)
+        phi2 = deg2rad(opposite_runway.lat)
+        lam1 = deg2rad(runway.lon)
+        lam2 = deg2rad(opposite_runway.lon)
+
+        heading = (
+            math.atan2(
+                math.sin(lam2 - lam1) * math.cos(phi2),
+                math.cos(phi1) * math.sin(phi2)
+                - math.sin(phi1) * math.cos(phi2) * math.cos(lam2 - lam1),
+            )
+            * 180
+            / math.pi
+        )
+        magnetic_offset = 11.5
+        heading = int(math.fmod(heading + 360, 360))
+
+        R = 6371e3
+        delphi = phi2 - phi1
+        dellam = lam2 - lam1
+
+        a = math.sin(delphi / 2) * math.sin(delphi / 2) + math.cos(phi1 / 2) * math.cos(
+            phi2 / 2
+        ) * math.sin(dellam / 2) * math.sin(dellam / 2)
+
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        length = round(R * c)
+        return HeadingLength(heading=heading, length=length)
+
 
 if __name__ == "__main__":
     apt = APT()
     print(apt.get_runway_idx_dir("LFLL", "35L"))
+    print(apt.get_runway_headin_and_length("LFLL", "35L"))

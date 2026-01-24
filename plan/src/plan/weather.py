@@ -33,7 +33,7 @@ class Weather:
         self._update_weather()
 
     def _update_weather(self):
-        if time.time() - self._last_update < 3600:
+        if time.time() - self._last_update < 60:
             return
         logger.info("Updating weather")
         metars = []

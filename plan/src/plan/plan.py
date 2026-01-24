@@ -166,7 +166,7 @@ class Plan:
                 logger.info("Not removing discontinuity, part of manual")
 
     async def mcdu_perf(self, to_flaps="1/UP0.0", flex=73):
-        logger.info(f"MCDU: Setting PERF")
+        logger.info("MCDU: Setting PERF")
         await self._rest.press_button("PERF")
         await self._rest.write_scratchpad(to_flaps)
         await self._rest.press_button("3R")

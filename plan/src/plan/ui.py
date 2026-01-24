@@ -1,7 +1,7 @@
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import logging
 import os
+import webbrowser
 
 from nicegui import ui, app
 from nicegui.element import Element
@@ -111,10 +111,11 @@ class UI:
                             self._plan_select = ui.select(
                                 [], on_change=self.select_plan
                             ).classes("flex-1")
-                            ui.button(
+                            plan_refresh_buttton = ui.button(
                                 icon="refresh",
                                 on_click=lambda e: self.update_plans(),
                             )
+                            plan_refresh_buttton.tooltip("Refresh plans")
                         with Row():
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
@@ -125,6 +126,10 @@ class UI:
                                 placeholder="Cruise Alt",
                                 prefix="FL",
                             )
+                            self._to_flaps = ui.input(
+                                "T/O Flaps",
+                                value="1/UP0.0",
+                            )
                     with Card(grow=True):
                         with Row():
                             with Col(gap=0):
@@ -134,19 +139,26 @@ class UI:
                                 ui.timer(1.0, self.update_time)
                                 self._plan_detail = ui.markdown("").classes("flex-1")
 
-                            ui.button(
-                                icon="computer",
-                                on_click=lambda e: self.init_mcdu(e.sender),
-                            )
-                            ui.button(
-                                icon="connecting_airports", on_click=self.move_aircraft
-                            )
+                            with ui.button_group():
+                                mcdu_init_button = ui.button(
+                                    icon="computer",
+                                    on_click=lambda e: self.init_mcdu(e.sender),
+                                )
+                                mcdu_init_button.tooltip("Init MCDU")
+                                spawn_aircaft_button = ui.button(
+                                    icon="connecting_airports",
+                                    on_click=self.move_aircraft,
+                                )
+                                spawn_aircaft_button.tooltip(
+                                    "Spawn aircraft at departure airport"
+                                )
                         with Row():
                             self._route = ui.input("Route", value="").classes("flex-1")
-                            ui.button(
+                            copy_route_button = ui.button(
                                 icon="content_paste",
                                 on_click=lambda: ui.clipboard.write(self._route.value),
                             )
+                            copy_route_button.tooltip("Copy route to clipboard")
                         with Row():
                             with Col(gap=0):
                                 with Row():
@@ -172,7 +184,10 @@ class UI:
                     loc = await self._plan.location
 
                     self._map = ui.leaflet(
-                        center=(loc.latitude, loc.longitude),
+                        center=(
+                            loc.latitude if loc.latitude is not None else 0,
+                            loc.longitude if loc.longitude is not None else 0,
+                        ),
                         additional_resources=[
                             "https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js",
                         ],
@@ -181,10 +196,13 @@ class UI:
             self.update_plans()
             ui.timer(10, lambda: self._background_task())
             self._aircraft_marker = self._map.marker(
-                latlng=(loc.latitude, loc.longitude),
+                latlng=(
+                    loc.latitude if loc.latitude else 0,
+                    loc.longitude if loc.longitude else 0,
+                ),
                 options={
                     "rotationOrigin": "center center",
-                    "rotationAngle": loc.psi - 45,
+                    "rotationAngle": (loc.psi - 45) if loc.psi is not None else 0,
                 },
             )
             await self._map.initialized()
@@ -192,7 +210,8 @@ class UI:
 
     def update_plans(self):
         opts = {}
-        for plan in self._plan.plans:
+        plans = sorted(self._plan.plans, key=lambda d: d["departure"])
+        for plan in plans:
             opts[plan["file_path"]] = plan["departure"] + " -> " + plan["destination"]
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
@@ -206,11 +225,13 @@ class UI:
             await self._plan.mcdu_init(
                 flt_number=self._flight_no.value, cruise_alt=self._cruise_alt.value
             )
-            await self._plan.mcdu_perf()
+            await self._plan.mcdu_perf(to_flaps=self._to_flaps.value)
             await self._plan.mcdu_fpln()
 
     async def update_location(self):
         loc = await self._plan.location
+        if loc.latitude is None:
+            return
         self._map.set_center((loc.latitude, loc.longitude))
         self._aircraft_marker.move(loc.latitude, loc.longitude)
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
@@ -225,6 +246,9 @@ class UI:
 
     async def update_time(self):
         zulu_seconds = await self._plan.time
+        if zulu_seconds is None:
+            self._time_label.set_text("--:--:--")
+            return
         hours, remain = divmod(int(zulu_seconds), 3600)
         minutes, seconds = divmod(remain, 60)
         self._time_label.set_text(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
@@ -267,8 +291,19 @@ class UI:
 
 def main(reload=False):
     ui_inst = UI()
+    cmd = [
+        "open",
+        "-na",
+        "Google Chrome",
+        "--args",
+        "--app=%s",
+        "--user-data-dir=/tmp/chrome-kiosk-{uuid4()}",
+    ]
+    webbrowser.register(
+        "kiosk", None, webbrowser.BackgroundBrowser(cmd), preferred=True
+    )
     app.on_shutdown(ui_inst.shutdown)
-    ui.run(ui_inst.main, show=False, reload=reload)
+    ui.run(ui_inst.main, reload=reload, show=True)
 
 
 if __name__ in {"__main__", "__mp_main__"}:
