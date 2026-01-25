@@ -72,6 +72,26 @@ class Card(ui.card):
         self.classes("items-baseline gap-1" + (" flex-1" if grow else ""))
 
 
+class ToggleButton(ui.button):
+    def __init__(self, *args, state=False, **kwargs) -> None:
+        self._state = state
+        super().__init__(*args, **kwargs)
+        self.on("click", self.toggle)
+
+    @property
+    def value(self):
+        return self._state
+
+    def toggle(self) -> None:
+        self._state = not self._state
+        self.update()
+
+    def update(self) -> None:
+        with self.props.suspend_updates():
+            self.props(f'color={"secondary" if self._state else "primary"}')
+        super().update()
+
+
 class UI:
     def __init__(self):
         self._apt = APT()
@@ -119,31 +139,37 @@ class UI:
                                 on_click=lambda e: self.update_plans(),
                             )
                             plan_refresh_buttton.tooltip("Refresh plans")
-                        with Row():
+                        with Row().classes("flex-nowrap"):
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
-                            ).style("width: 60px")
+                            )
                             self._cruise_alt = ui.input(
                                 "Cruise Alt.",
                                 value="",
                                 placeholder="Cruise Alt",
                                 prefix="FL",
-                            ).style("width: 60px")
+                            )
                             self._to_flaps = ui.select(
                                 {1: "1+F", 2: "2", 3: "3"},
                                 label="Flaps",
                                 value=1,
-                                on_change=self.update_mcdu_perf
+                                on_change=self.update_mcdu_perf,
                             )
-                            self._runway_condition = ui.switch(
-                                "Wet", on_change=self.update_mcdu_perf
-                            )
-                            self._packs = ui.switch(
-                                "Packs", value=True, on_change=self.update_mcdu_perf
-                            )
-                            self._anti_ice = ui.switch(
-                                "AI", on_change=self.update_mcdu_perf
-                            )
+                            with ui.button_group():
+                                self._runway_condition = ToggleButton(
+                                    icon="umbrella", on_click=self.update_mcdu_perf
+                                )
+                                self._runway_condition.tooltip("Runway Wet")
+                                self._packs = ToggleButton(
+                                    icon="hvac",
+                                    on_click=self.update_mcdu_perf,
+                                    state=True,
+                                )
+                                self._packs.tooltip("Packs")
+                                self._anti_ice = ToggleButton(
+                                    icon="ac_unit", on_click=self.update_mcdu_perf
+                                )
+                                self._anti_ice.tooltip("Anti Ice")
                     with Card(grow=True):
                         with Row():
                             with Col(gap=0):
@@ -151,9 +177,7 @@ class UI:
                                     "font-family: DSEG7;"
                                 )
                                 ui.timer(1.0, self.update_time)
-                                self._plan_detail = ui.markdown("").classes(
-                                    "flex-1 text-nowrap"
-                                )
+                                self._plan_detail = ui.markdown("").classes("flex-1")
 
                             with ui.button_group():
                                 mcdu_init_button = ui.button(
@@ -280,7 +304,7 @@ class UI:
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.content = f"**RW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **RW**: {self._plan.current['DESRWY']}"
+        self._plan_detail.content = f"{self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} {self._plan.current['DESRWY']}"
 
         self._cruise_alt.value = self._plan.cruise
 
