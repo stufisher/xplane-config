@@ -8,6 +8,7 @@ from nicegui.element import Element
 
 from .plan import Plan
 from .udp import UDP
+from .apt import APT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,8 +74,9 @@ class Card(ui.card):
 
 class UI:
     def __init__(self):
-        self._plan = Plan()
-        self._udp = UDP()
+        self._apt = APT()
+        self._plan = Plan(self._apt)
+        self._udp = UDP(self._apt)
         self._background_running = True
         self._map_markers = []
 
@@ -84,8 +86,9 @@ class UI:
         app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
         ui.page_title("X-Plane")
 
-        @ui.page("/")
-        async def page():
+        # @ui.page("/")
+        # async def page():
+        if True:
             if 1:
                 dark = ui.dark_mode()
                 dark.enable()
@@ -107,7 +110,7 @@ class UI:
             with Row():
                 with Col():
                     with Card():
-                        with Row():
+                        with Row().classes("flex-nowrap"):
                             self._plan_select = ui.select(
                                 [], on_change=self.select_plan
                             ).classes("flex-1")
@@ -119,16 +122,27 @@ class UI:
                         with Row():
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
-                            )
+                            ).style("width: 60px")
                             self._cruise_alt = ui.input(
                                 "Cruise Alt.",
                                 value="",
                                 placeholder="Cruise Alt",
                                 prefix="FL",
+                            ).style("width: 60px")
+                            self._to_flaps = ui.select(
+                                {1: "1+F", 2: "2", 3: "3"},
+                                label="Flaps",
+                                value=1,
+                                on_change=self.update_mcdu_perf
                             )
-                            self._to_flaps = ui.input(
-                                "T/O Flaps",
-                                value="1/UP0.0",
+                            self._runway_condition = ui.switch(
+                                "Wet", on_change=self.update_mcdu_perf
+                            )
+                            self._packs = ui.switch(
+                                "Packs", value=True, on_change=self.update_mcdu_perf
+                            )
+                            self._anti_ice = ui.switch(
+                                "AI", on_change=self.update_mcdu_perf
                             )
                     with Card(grow=True):
                         with Row():
@@ -137,7 +151,9 @@ class UI:
                                     "font-family: DSEG7;"
                                 )
                                 ui.timer(1.0, self.update_time)
-                                self._plan_detail = ui.markdown("").classes("flex-1")
+                                self._plan_detail = ui.markdown("").classes(
+                                    "flex-1 text-nowrap"
+                                )
 
                             with ui.button_group():
                                 mcdu_init_button = ui.button(
@@ -173,12 +189,7 @@ class UI:
                                 self.des_weather = ui.markdown("6c hail 999mb")
 
                     with Card(grow=True):
-                        log = ui.log(max_lines=5).style("height: 80px")
-                        handler = LogElementHandler(log)
-                        logging.getLogger().addHandler(handler)
-                        ui.context.client.on_disconnect(
-                            lambda: logger.removeHandler(handler)
-                        )
+                        self._log = ui.log(max_lines=5).style("height: 80px")
 
                 with Card(grow=True):
                     loc = await self._plan.location
@@ -208,6 +219,10 @@ class UI:
             await self._map.initialized()
             self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
+            handler = LogElementHandler(self._log)
+            logging.getLogger().addHandler(handler)
+            ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
+
     def update_plans(self):
         opts = {}
         plans = sorted(self._plan.plans, key=lambda d: d["departure"])
@@ -225,8 +240,16 @@ class UI:
             await self._plan.mcdu_init(
                 flt_number=self._flight_no.value, cruise_alt=self._cruise_alt.value
             )
-            await self._plan.mcdu_perf(to_flaps=self._to_flaps.value)
+            await self.update_mcdu_perf()
             await self._plan.mcdu_fpln()
+
+    async def update_mcdu_perf(self):
+        await self._plan.mcdu_perf(
+            to_flaps=self._to_flaps.value,
+            runway_condition=1 if self._runway_condition.value else 0,
+            packs=self._packs.value,
+            anti_ice=self._anti_ice.value,
+        )
 
     async def update_location(self):
         loc = await self._plan.location

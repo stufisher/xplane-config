@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 class UDP:
-    def __init__(self):
+    def __init__(self, apt: APT):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._apt = APT()
+        self._apt = apt
 
     def send(self, msg):
         self._sock.sendto(msg, ("192.168.1.100", 49000))

@@ -31,12 +31,14 @@ class Runway:
     rwy_dir: int
     lat: float
     lon: float
+    elevation: int
 
 
 @dataclass
 class HeadingLength:
     heading: int
     length: int
+    elevation: int
 
 
 def deg2rad(deg: float):
@@ -61,6 +63,7 @@ class APT:
                         in_airport = False
                     if parts[4] == icao_code:
                         in_airport = True
+                        elevation = int(parts[1])
 
                 if line.startswith("100") and in_airport:
                     fields = line.strip().split()
@@ -75,6 +78,7 @@ class APT:
                             rwy_dir=rw_dir,
                             lat=float(rw_fields[1]),
                             lon=float(rw_fields[2]),
+                            elevation=elevation,
                         )
 
                     rw_idx += 1
@@ -89,7 +93,7 @@ class APT:
             name = name.replace("RW", "")
         return runways[name]
 
-    def get_runway_headin_and_length(self, icao_code: str, name: str):
+    def get_runway_heading_and_length(self, icao_code: str, name: str):
         runway = self.get_runway_idx_dir(icao_code, name)
         runways = self._airports[icao_code]
         opposite_runway = None
@@ -129,10 +133,10 @@ class APT:
 
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         length = round(R * c)
-        return HeadingLength(heading=heading, length=length)
+        return HeadingLength(heading=heading, length=length, elevation=runway.elevation)
 
 
 if __name__ == "__main__":
     apt = APT()
-    print(apt.get_runway_idx_dir("LFLL", "35L"))
-    print(apt.get_runway_headin_and_length("LFLL", "35L"))
+    # print(apt.get_runway_idx_dir("LSGG", "22"))
+    print(apt.get_runway_heading_and_length("LSGG", "22"))

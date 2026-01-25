@@ -38,7 +38,7 @@ LRMAP = {
 
 CHARACTER_MAP = {
     "/": "AirbusFBW/MCDU1KeySlash",
-    ".": "AirbusFBW/MCDU2KeyDecimal",
+    ".": "AirbusFBW/MCDU1KeyDecimal",
     " ": "AirbusFBW/MCDU1KeySpace",
     "KEY": "AirbusFBW/MCDU1Key",
 }
@@ -70,11 +70,13 @@ class REST:
 
     async def resolve_rest(self):
         try:
+            success = True
             resp = await self._client.get(self._base_url + self._commands)
             if resp.status_code == 200:
-
                 for row in resp.json()["data"]:
                     self.__commands[row["name"]] = row["id"]
+            else:
+                success = False
 
             resp = await self._client.get(self._base_url + self._datarefs)
             if resp.status_code == 200:
@@ -83,9 +85,14 @@ class REST:
                         "id": row["id"],
                         "type": row["value_type"],
                     }
-            self._xplane_running = True
-            logger.info("Initialilsed REST mapping")
-        except httpx.ConnectError:
+            else:
+                success = False
+            if success:
+                self._xplane_running = True
+                logger.info("Initialilsed REST mapping")
+            else:
+                logger.infpo("Error initallising REST mapping")
+        except Exception:
             if self._xplane_running:
                 logger.warning("X-Plane is offline")
                 self.__commands = []
@@ -115,6 +122,9 @@ class REST:
             )
         except httpx.ReadTimeout:
             logger.info("Timeout waiting for REST API")
+            return
+        except Exception:
+            logger.info("Error getting respons from REST API")
             return
         if resp.status_code == 200:
             result = resp.json()["data"]

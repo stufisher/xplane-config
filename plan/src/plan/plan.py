@@ -2,9 +2,11 @@ import asyncio
 from dataclasses import dataclass
 import logging
 
+from .apt import APT
 from .fms import FMS
 from .rest import REST
 from .weather import Weather
+from .to.to import TOCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +22,12 @@ class Location:
 
 
 class Plan:
-    def __init__(self):
+    def __init__(self, apt: APT):
         self._fms = FMS()
         self._rest = REST()
         self._weather = Weather()
         self._plan = None
+        self._to = TOCalculator(self._rest, apt, self._weather)
 
     async def _init(self):
         await self._rest._init()
@@ -165,17 +168,28 @@ class Plan:
             else:
                 logger.info("Not removing discontinuity, part of manual")
 
-    async def mcdu_perf(self, to_flaps="1/UP0.0", flex=73):
+    async def mcdu_perf(
+        self, to_flaps="1", runway_condition=0, packs=True, anti_ice=False
+    ):
         logger.info("MCDU: Setting PERF")
+        trim = await self._to.calc_trim()
+        dep_runway = self._plan["DEPRWY"].replace("RW", "")
+        flex_vspeeds = await self._to.calc_vspeeds_flex(
+            self._plan["ADEP"], dep_runway, to_flaps, runway_condition, packs, anti_ice
+        )
+        logger.info(
+            f"TO Params: V1 {flex_vspeeds.v1} VR {flex_vspeeds.vr} V2 {flex_vspeeds.v2} Flex Temp: {flex_vspeeds.flex} Trim {trim}"
+        )
         await self._rest.press_button("PERF")
-        await self._rest.write_scratchpad(to_flaps)
+        await self._rest.write_scratchpad(f"{to_flaps}/{trim}")
         await self._rest.press_button("3R")
-        await self._rest.write_scratchpad(str(flex))
-        await self._rest.press_button("4R")
+        if flex_vspeeds.flex:
+            await self._rest.write_scratchpad(str(flex_vspeeds.flex))
+            await self._rest.press_button("4R")
 
-        await self._rest.set_dataref("toliss_airbus/performance/VR", 145)
-        await self._rest.set_dataref("toliss_airbus/performance/V1", 145)
-        await self._rest.set_dataref("toliss_airbus/performance/V2", 155)
+        await self._rest.set_dataref("toliss_airbus/performance/VR", flex_vspeeds.vr)
+        await self._rest.set_dataref("toliss_airbus/performance/V1", flex_vspeeds.v1)
+        await self._rest.set_dataref("toliss_airbus/performance/V2", flex_vspeeds.v2)
 
     async def mcdu_fpln(self):
         await self._rest.press_button("FPLN")
