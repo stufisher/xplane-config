@@ -116,15 +116,28 @@ class UI:
                     ".leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution, .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }"
                 )
 
-            ui.add_css(
-                """@font-face{
-            font-family: "DSEG7";
-            src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
-            font-weight: normal;
-            font-style: normal;
-        }"""
-            )
-            ui.add_css(".nicegui-markdown p { margin-top: 0 } ")
+            ui.add_css("""
+                @font-face{
+                    font-family: "DSEG7";
+                    src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
+                    font-weight: normal;
+                    font-style: normal;
+                }
+                .nicegui-markdown p {
+                    margin-top: 0;
+                }
+                .leaflet-tooltip.leaflet-tooltip-right {
+                    background: none;
+                    border: none;
+                    padding: 0 6px;
+                    color: pink;
+                    margin-left: 0;
+                }
+
+                .leaflet-tooltip-right:before {
+                    border: none !important;
+                }
+            """)
             ui.query(".nicegui-content").classes("flex-row")
 
             with Row():
@@ -134,14 +147,23 @@ class UI:
                             self._plan_select = ui.select(
                                 [], on_change=self.select_plan
                             ).classes("flex-1")
-                            plan_refresh_buttton = ui.button(
-                                icon="refresh",
-                                on_click=lambda e: self.update_plans(),
-                            )
-                            plan_refresh_buttton.tooltip("Refresh plans")
+                            with ui.button_group():
+                                plan_refresh_buttton = ui.button(
+                                    icon="refresh",
+                                    on_click=lambda e: self.update_plans(),
+                                )
+                                plan_refresh_buttton.tooltip("Refresh plans")
+                                restore_popups_button = ui.button(
+                                    icon="window",
+                                    on_click=self.restore_popups,
+                                )
+                                restore_popups_button.tooltip("Restore popups")
                         with Row().classes("flex-nowrap"):
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
+                            )
+                            self._code_code = ui.input(
+                                "Cost", value="20", placeholder="Cost Code"
                             )
                             self._cruise_alt = ui.input(
                                 "Cruise Alt.",
@@ -172,13 +194,13 @@ class UI:
                                 self._anti_ice.tooltip("Anti Ice")
                     with Card(grow=True):
                         with Row():
-                            with Col(gap=0):
-                                self._time_label = ui.label("12:34").style(
-                                    "font-family: DSEG7;"
-                                )
-                                ui.timer(1.0, self.update_time)
-                                self._plan_detail = ui.markdown("").classes("flex-1")
-
+                            # with Col(gap=0):
+                            self._time_label = ui.label("12:34").style(
+                                "font-family: DSEG7; font-size: 1.5rem"
+                            )
+                            ui.timer(1.0, self.update_time)
+                        with Row():
+                            self._plan_detail = ui.markdown("").classes("flex-1")
                             with ui.button_group():
                                 mcdu_init_button = ui.button(
                                     icon="computer",
@@ -186,11 +208,18 @@ class UI:
                                 )
                                 mcdu_init_button.tooltip("Init MCDU")
                                 spawn_aircaft_button = ui.button(
-                                    icon="connecting_airports",
-                                    on_click=self.move_aircraft,
+                                    icon="add_road",
+                                    on_click=self.move_aircraft_to_runway,
                                 )
                                 spawn_aircaft_button.tooltip(
-                                    "Spawn aircraft at departure airport"
+                                    "Spawn aircraft at departure airport runway"
+                                )
+                                spawn_aircaft_gate_button = ui.button(
+                                    icon="luggage",
+                                    on_click=self.move_aircraft_to_gate,
+                                )
+                                spawn_aircaft_gate_button.tooltip(
+                                    "Spawn aircraft at departure airport gate"
                                 )
                         with Row():
                             self._route = ui.input("Route", value="").classes("flex-1")
@@ -262,7 +291,9 @@ class UI:
     async def init_mcdu(self, element):
         with disable(element):
             await self._plan.mcdu_init(
-                flt_number=self._flight_no.value, cruise_alt=self._cruise_alt.value
+                flt_number=self._flight_no.value,
+                cruise_alt=self._cruise_alt.value,
+                cost=self._code_code.value,
             )
             await self.update_mcdu_perf()
             await self._plan.mcdu_fpln()
@@ -304,7 +335,7 @@ class UI:
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.content = f"{self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} {self._plan.current['DESRWY']}"
+        self._plan_detail.content = f"**DEPRW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current['DESRWY']}"
 
         self._cruise_alt.value = self._plan.cruise
 
@@ -323,14 +354,31 @@ class UI:
             marker = self._map.marker(latlng=(waypoint.latitude, waypoint.longitude))
             self._map_markers.append(marker)
             marker.run_method(":setIcon", ICON_DIAMOND)
+            marker.run_method(
+                "bindTooltip",
+                waypoint.name,
+                {
+                    "permanent": True,
+                    "direction": "right",
+                    "className": "leaflet-tooltip-nicegui",
+                },
+            )
 
         self._route.value = " ".join(route)
 
-    def move_aircraft(self):
+    def move_aircraft_to_runway(self):
         runway = self._plan.current["DEPRWY"]
         icao_code = self._plan.current["ADEP"]
         if runway and icao_code:
-            self._udp.move_aircraft(icao_code, runway)
+            self._udp.move_aircraft_to_runway(icao_code, runway)
+
+    def move_aircraft_to_gate(self):
+        icao_code = self._plan.current["ADEP"]
+        if icao_code:
+            self._udp.move_aircraft_to_gate(icao_code)
+
+    async def restore_popups(self):
+        await self._plan._rest.execute_command("toliss_airbus/reinstatePopups")
 
     async def shutdown(self):
         await self._plan.shutdown()

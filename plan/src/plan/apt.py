@@ -41,17 +41,32 @@ class HeadingLength:
     elevation: int
 
 
+@dataclass
+class Gate:
+    lat: float
+    lon: float
+    heading: int
+    ramp_idx: int
+    name: str
+    location_type: str
+    aircraft_type: str
+    elevation: int
+
+
 def deg2rad(deg: float):
     return deg * math.pi / 180
 
 
 class APT:
     def __init__(self):
-        self._airports: dict[str, dict[str, Runway]] = {}
+        self._airport_runways: dict[str, dict[str, Runway]] = {}
+        self._airport_ramps: dict[str, dict[str, Gate]] = {}
 
     def _parse(self, icao_code: str):
         runways = {}
+        gates = {}
         rw_idx = 0
+        ramp_idx = 0
         in_airport = False
         with open(DEFAULT_APD_PATH) as apd_file:
             for line in apd_file:
@@ -83,19 +98,48 @@ class APT:
 
                     rw_idx += 1
 
-            self._airports[icao_code] = runways
+                if line.startswith("1300") and in_airport:
+                    gate_fields = line.strip().split()
+                    gates[gate_fields[6]] = Gate(
+                        lat=gate_fields[1],
+                        lon=gate_fields[2],
+                        ramp_idx=ramp_idx,
+                        heading=gate_fields[3],
+                        location_type=gate_fields[4],
+                        aircraft_type=gate_fields[5],
+                        name=gate_fields[6],
+                        elevation=elevation,
+                    )
+                    ramp_idx += 1
+
+            self._airport_runways[icao_code] = runways
+            self._airport_ramps[icao_code] = gates
 
     def get_runway_idx_dir(self, icao_code: str, name: str):
-        if icao_code not in self._airports:
+        if icao_code not in self._airport_runways:
             self._parse(icao_code)
-        runways = self._airports[icao_code]
+        runways = self._airport_runways[icao_code]
         if "RW" in name:
             name = name.replace("RW", "")
         return runways[name]
 
+    def get_ramps(
+        self, icao_code: str, aircraft_type="jets", location_types=["gate", "tie_down"]
+    ):
+        if icao_code not in self._airport_ramps:
+            self._parse(icao_code)
+
+        ramps = self._airport_ramps[icao_code]
+        return {
+            gate_name: gate
+            for (gate_name, gate) in ramps.items()
+            if aircraft_type in gate.aircraft_type
+            and gate.location_type in location_types
+        }
+
     def get_runway_heading_and_length(self, icao_code: str, name: str):
         runway = self.get_runway_idx_dir(icao_code, name)
-        runways = self._airports[icao_code]
+        runways = self._airport_runways[icao_code]
         opposite_runway = None
         for rw in runways.values():
             if rw.rwy_idx == runway.rwy_idx and rw.rwy_dir != runway.rwy_dir:
@@ -139,4 +183,8 @@ class APT:
 if __name__ == "__main__":
     apt = APT()
     # print(apt.get_runway_idx_dir("LSGG", "22"))
-    print(apt.get_runway_heading_and_length("LSGG", "22"))
+    # print(apt.get_runway_heading_and_length("LSGG", "22"))
+    # print(apt.get_gates("LSGG"))
+
+    ramps = apt.get_gates("LFLL")
+    print(len(ramps), ramps)
