@@ -50,7 +50,11 @@ class Weather:
 
     def get_forecast(self, airport: str):
         self._update_weather()
-        metar_string = self._weather_cache[airport]
+        try:
+            metar_string = self._weather_cache[airport]
+        except KeyError:
+            logger.warning(f"Could not get weather for {airport}")
+            return
         return Metar.Metar("METAR " + metar_string)
 
 

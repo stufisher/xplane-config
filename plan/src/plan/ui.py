@@ -3,12 +3,13 @@ import logging
 import os
 import webbrowser
 
-from nicegui import ui, app
+from nicegui import ui, app, events
 from nicegui.element import Element
 
 from .plan import Plan
 from .udp import UDP
 from .apt import APT
+from .fms import latlon_to_fms
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -116,7 +117,8 @@ class UI:
                     ".leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution, .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }"
                 )
 
-            ui.add_css("""
+            ui.add_css(
+                """
                 @font-face{
                     font-family: "DSEG7";
                     src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
@@ -137,7 +139,8 @@ class UI:
                 .leaflet-tooltip-right:before {
                     border: none !important;
                 }
-            """)
+            """
+            )
             ui.query(".nicegui-content").classes("flex-row")
 
             with Row():
@@ -153,11 +156,6 @@ class UI:
                                     on_click=lambda e: self.update_plans(),
                                 )
                                 plan_refresh_buttton.tooltip("Refresh plans")
-                                restore_popups_button = ui.button(
-                                    icon="window",
-                                    on_click=self.restore_popups,
-                                )
-                                restore_popups_button.tooltip("Restore popups")
                         with Row().classes("flex-nowrap"):
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
@@ -195,12 +193,35 @@ class UI:
                     with Card(grow=True):
                         with Row():
                             # with Col(gap=0):
-                            self._time_label = ui.label("12:34").style(
-                                "font-family: DSEG7; font-size: 1.5rem"
+                            self._time_label = (
+                                ui.label("12:34")
+                                .style("font-family: DSEG7; font-size: 1.5rem")
+                                .classes("flex-1")
                             )
                             ui.timer(1.0, self.update_time)
+                            with ui.button_group():
+                                restore_popups_button = ui.button(
+                                    icon="window",
+                                    on_click=self.restore_popups,
+                                )
+                                restore_popups_button.tooltip("Restore popups")
+                                self._map_click_to_scratchpad = ToggleButton(
+                                    icon="add_location"
+                                )
+                                self._map_click_to_scratchpad.tooltip(
+                                    "Enable map click to scratchpad"
+                                )
+                                clear_scratchpad = ui.button(
+                                    icon="backspace",
+                                    on_click=lambda: self._plan._rest.clear_scratchpad(),
+                                )
+                                clear_scratchpad.tooltip("Clear scratchpad")
                         with Row():
-                            self._plan_detail = ui.markdown("").classes("flex-1")
+                            self._plan_detail = (
+                                ui.markdown("")
+                                .classes("flex-1")
+                                .style("font-size: 1rem;")
+                            )
                             with ui.button_group():
                                 mcdu_init_button = ui.button(
                                     icon="computer",
@@ -232,13 +253,13 @@ class UI:
                             with Col(gap=0):
                                 with Row():
                                     ui.icon("flight_takeoff").classes("text-2xl")
-                                    self.dep_time = ui.label("18:10")
+                                    self.dep_time = ui.label("--:--")
                                 self.dep_weather = ui.markdown("-4c mist 1016mb")
 
                             with Col(gap=0):
                                 with Row():
                                     ui.icon("flight_land").classes("text-2xl")
-                                    self.des_time = ui.label("18:20")
+                                    self.des_time = ui.label("--:--")
                                 self.des_weather = ui.markdown("6c hail 999mb")
 
                     with Card(grow=True):
@@ -270,6 +291,7 @@ class UI:
                 },
             )
             await self._map.initialized()
+            self._map.on("map-click", self.on_map_click)
             self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
             handler = LogElementHandler(self._log)
@@ -315,12 +337,22 @@ class UI:
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
 
     def update_weather(self):
-        if self._plan.weather_des:
-            self.des_time.set_text(f"{self._plan.weather_des.time:%H:%M}")
-            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')}, {self._plan.weather_des.wind()}, {self._plan.weather_des.visibility()} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
         if self._plan.weather_dep:
-            self.dep_time.set_text(f"{self._plan.weather_dep.time:%H:%M}")
+            self.dep_time.set_text(
+                f"{self._plan.current['ADEP']} {self._plan.weather_dep.time:%H:%M}"
+            )
             self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')}, {self._plan.weather_dep.wind()}, {self._plan.weather_dep.visibility()} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
+        else:
+            self.dep_time.set_text(f"{self._plan.current['ADEP']} --:--")
+            self.dep_weather.content = "N/A"
+        if self._plan.weather_des:
+            self.des_time.set_text(
+                f"{self._plan.current['ADES']} {self._plan.weather_des.time:%H:%M}"
+            )
+            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')}, {self._plan.weather_des.wind()}, {self._plan.weather_des.visibility()} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
+        else:
+            self.des_time.set_text(f"{self._plan.current['ADES']} --:--")
+            self.des_weather.content = "N/A"
 
     async def update_time(self):
         zulu_seconds = await self._plan.time
@@ -335,7 +367,7 @@ class UI:
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.content = f"**DEPRW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current['SID']} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current['DESRWY']}"
+        self._plan_detail.content = f"**DEPRW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current.get('SID')} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current.get('DESRWY')}"
 
         self._cruise_alt.value = self._plan.cruise
 
@@ -379,6 +411,11 @@ class UI:
 
     async def restore_popups(self):
         await self._plan._rest.execute_command("toliss_airbus/reinstatePopups")
+
+    async def on_map_click(self, e: events.GenericEventArguments):
+        if self._map_click_to_scratchpad.value:
+            sp = latlon_to_fms(e.args["latlng"]["lat"], e.args["latlng"]["lng"])
+            await self._plan._rest.write_scratchpad(sp)
 
     async def shutdown(self):
         await self._plan.shutdown()

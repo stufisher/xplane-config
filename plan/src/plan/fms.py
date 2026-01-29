@@ -6,6 +6,28 @@ from airports.airport_data import get_airport_by_icao
 DEFAULT_FMS_PATH = os.path.expanduser("~/X-Plane 12/Output/FMS Plans")
 
 
+def decdeg2dms(dd):
+    negative = dd < 0
+    dd = abs(dd)
+    minutes, seconds = divmod(dd * 3600, 60)
+    degrees, minutes = divmod(minutes, 60)
+    if negative:
+        if degrees > 0:
+            degrees = -degrees
+        elif minutes > 0:
+            minutes = -minutes
+        else:
+            seconds = -seconds
+    return (int(degrees), int(minutes), round(seconds))
+
+
+def latlon_to_fms(lat: float, lon: float):
+    lat_dms = decdeg2dms(lat)
+    lon_dms = decdeg2dms(lon)
+
+    return f"{lat_dms[0]:02d}{lat_dms[1]:02d}.{lat_dms[2]:02d}N/{lon_dms[0]:03d}{lon_dms[1]:02d}.{lon_dms[2]:02d}E"
+
+
 @dataclass
 class Waypoint:
     type_id: int
@@ -79,3 +101,10 @@ class FMS:
 
 if __name__ == "__main__":
     fms = FMS()
+
+    coords = (45.435120, 6.687012)
+    lat = decdeg2dms(coords[0])
+    lon = decdeg2dms(coords[1])
+    print(lat, lon)
+    sp = latlon_to_fms(*coords)
+    print(sp)

@@ -135,7 +135,19 @@ class Plan:
         if row_id is not None:
             await self._rest.press_button(f"{row_id+1}L")
         else:
-            logger.warning(f"Could not set departure APP `{app}`")
+            # Try dashed variant
+            if (
+                app.endswith("X") or app.endswith("Y") or app.endswith("Z")
+            ) and "-" not in app:
+                app = app[:-1] + "-" + app[-1]
+                logger.info(f"MCDU: Trying dashed variant of APP `{app}`")
+                row_id = await self._rest.find_row_in_display(app, direction="DOWN")
+                if row_id is not None:
+                    await self._rest.press_button(f"{row_id+1}L")
+                else:
+                    logger.warning(f"Could not set departure APP `{app}`")
+            else:
+                logger.warning(f"Could not set departure APP `{app}`")
 
         # Star
         star = self._plan.get("STAR")

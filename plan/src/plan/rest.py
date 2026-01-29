@@ -2,6 +2,7 @@ import asyncio
 import base64
 import logging
 import time
+import typing
 
 import httpx
 
@@ -60,8 +61,8 @@ class REST:
         self._commands = "/commands"
         self._datarefs = "/datarefs"
 
-        self.__commands = {}
-        self.__datarefs = {}
+        self.__commands: dict[str, int] = {}
+        self.__datarefs: dict[str, dict[str, any]] = {}
 
         self._xplane_running = False
 
@@ -69,6 +70,7 @@ class REST:
         await self.resolve_rest()
 
     async def resolve_rest(self):
+        self._xplane_running = False
         try:
             success = True
             resp = await self._client.get(self._base_url + self._commands)
@@ -91,7 +93,7 @@ class REST:
                 self._xplane_running = True
                 logger.info("Initialilsed REST mapping")
             else:
-                logger.infpo("Error initallising REST mapping")
+                logger.info("Error initialising REST mapping")
         except Exception:
             if self._xplane_running:
                 logger.warning("X-Plane is offline")
@@ -103,28 +105,60 @@ class REST:
     def online(self):
         return self._xplane_running
 
-    async def get_dataref(self, dataref: str):
+    async def _request(
+        self, method: typing.Literal["get", "post", "patch"], *args, **kwargs
+    ):
+        if method == "get":
+            client_method = self._client.get
+        elif method == "post":
+            client_method = self._client.post
+        else:
+            client_method = self._client.patch
+        try:
+            resp = await client_method(*args, **kwargs)
+            return resp
+        except httpx.ReadTimeout:
+            logger.info("Timeout waiting for REST API")
+            raise
+        except Exception as err:
+            logger.info(f"Error getting response from REST API {err}")
+            raise
+
+    async def _resolve(
+        self,
+        identifier: str,
+        item_type: typing.Literal["dataref", "command"] = "dataref",
+    ):
         if not self._xplane_running:
             await self.resolve_rest()
             if not self._xplane_running:
+                logger.info("X-Plane REST API not available after retry")
                 return
+
+        type_dict = self.__datarefs if item_type == "dataref" else self.__commands
         try:
-            dref = self.__datarefs[dataref]
+            return type_dict[identifier]
         except KeyError:
-            logger.info("X-Plane started but simulator not yet running")
-            await asyncio.sleep(5)
-            self._xplane_running = False
+            logger.info("X-Plane running but not all datrefs available yet")
+            await self.resolve_rest()
+            try:
+                return type_dict[identifier]
+            except Exception:
+                logger.warning(f"Could not resolve {type} {identifier} after retry")
+                return
+
+    async def get_dataref(self, dataref: str):
+        dref = await self._resolve(dataref)
+        if not dref:
             return
 
         try:
-            resp = await self._client.get(
-                self._base_url + self._datarefs + "/" + str(dref["id"]) + "/value"
+            resp = await self._request(
+                "get",
+                f"{self._base_url}{self._datarefs}/{dref['id']}/value",
             )
-        except httpx.ReadTimeout:
-            logger.info("Timeout waiting for REST API")
-            return
         except Exception:
-            logger.info("Error getting respons from REST API")
+            self._xplane_running = False
             return
         if resp.status_code == 200:
             result = resp.json()["data"]
@@ -133,29 +167,40 @@ class REST:
             return result
 
     async def set_dataref(self, dataref: str, value: any):
-        if not self._xplane_running:
+        dref = await self._resolve(dataref)
+        if not dref:
             return
+
         if isinstance(value, str):
             value = base64.b64encode(value)
-
-        dref = self.__datarefs[dataref]
-        resp = await self._client.patch(
-            self._base_url + self._datarefs + "/" + str(dref["id"]) + "/value",
-            json={"data": value},
-        )
+        try:
+            resp = await self._request(
+                "patch",
+                f"{self._base_url}{self._datarefs}/{dref['id']}/value",
+                json={"data": value},
+            )
+        except Exception:
+            self._xplane_running = False
+            return
         if resp.status_code == 200:
             return True
         else:
             raise RuntimeError(f"{resp.status_code}: {resp.json()}")
 
     async def execute_command(self, command: str):
-        if not self._xplane_running:
+        command_id = await self._resolve(command, item_type="command")
+        if not command_id:
             return
-        command_id = self.__commands[command]
-        resp = await self._client.post(
-            self._base_url + "/command/" + str(command_id) + "/activate",
-            json={"duration": 0},
-        )
+
+        try:
+            resp = await self._request(
+                "post",
+                f"{self._base_url}/command/{command_id}/activate",
+                json={"duration": 0},
+            )
+        except Exception:
+            self._xplane_running = False
+            return
         if resp.status_code == 200:
             return True
         return False
@@ -250,9 +295,10 @@ if __name__ == "__main__":
         # print(value)
         # await rest.set_dataref("toliss_airbus/performance/VR", 145)
         # value = await rest.get_dataref("toliss_airbus/init/ZFW")
-        value = await rest.get_dataref("sim/flightmodel/weight/m_total")
-        value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z")
-        value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z_mac")
-        print(value)
+        # value = await rest.get_dataref("sim/flightmodel/weight/m_total")
+        # value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z")
+        # value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z_mac")
+        value = await rest.get_dataref("AirbusFBW/MCDU1spw")
+        print(value, value is None)
 
     loop.run_until_complete(moo())
