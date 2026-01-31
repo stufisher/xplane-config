@@ -33,7 +33,7 @@ mapping_in = [
   
   # Encoders
   { ch = 11, cc = 1, sl = "0", type = "enc", command_up = "AirbusFBW/RMP1FreqUpLrg", command_down = "AirbusFBW/RMP1FreqDownLrg" },
-  { ch = 11, cc = 1, sl = "1", type = "enc", command_up = "AirbusFBW/RMP1FreqUpSml", command_down = "AirbusFBW/RMP1FreqDownpSml" },
+  { ch = 11, cc = 1, sl = "1", type = "enc", command_up = "AirbusFBW/RMP1FreqUpSml", command_down = "AirbusFBW/RMP1FreqDownSml" },
   { ch = 11, cc = 2, type = "enc", command_up = "sim/instruments/barometer_up", command_down = "sim/instruments/barometer_down" },
   { ch = 11, cc = 3, type = "enc", command_up = "sim/instruments/EFIS_mode_up", command_down = "sim/instruments/EFIS_mode_dn" },
   { ch = 11, cc = 4, type = "enc", command_up = "sim/instruments/map_zoom_in", command_down = "sim/instruments/map_zoom_out" },
