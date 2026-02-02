@@ -46,7 +46,12 @@ class LogElementHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            self.element.push(msg)
+            level_styles = {
+                "ERROR": "text-red",
+                "WARNING": "text-orange",
+                "INFO": "text-gray",
+            }
+            self.element.push(msg, classes=level_styles.get(record.levelname, "INFO"))
         except Exception:
             self.handleError(record)
 
@@ -216,6 +221,12 @@ class UI:
                                     on_click=lambda: self._plan._rest.clear_scratchpad(),
                                 )
                                 clear_scratchpad.tooltip("Clear scratchpad")
+                                self._map_center = ToggleButton(
+                                    icon="my_location",
+                                    state=True,
+                                    on_click=lambda: self.update_location(),
+                                )
+                                self._map_center.tooltip("Center map on plane location")
                         with Row():
                             self._plan_detail = (
                                 ui.markdown("")
@@ -332,7 +343,8 @@ class UI:
         loc = await self._plan.location
         if loc.latitude is None:
             return
-        self._map.set_center((loc.latitude, loc.longitude))
+        if self._map_center.value:
+            self._map.set_center((loc.latitude, loc.longitude))
         self._aircraft_marker.move(loc.latitude, loc.longitude)
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
 
@@ -367,7 +379,7 @@ class UI:
         self._plan.load_plan(change_event.value)
         self.update_weather()
 
-        self._plan_detail.content = f"**DEPRW**: {self._plan.current['DEPRWY']} **SID**: {self._plan.current.get('SID')} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current.get('DESRWY')}"
+        self._plan_detail.content = f"**DEPRW**: {self._plan.current.get('DEPRWY')} **SID**: {self._plan.current.get('SID')} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current.get('DESRWY')}"
 
         self._cruise_alt.value = self._plan.cruise
 

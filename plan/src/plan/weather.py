@@ -35,7 +35,7 @@ class Weather:
     def _update_weather(self):
         if time.time() - self._last_update < 60:
             return
-        logger.info("Updating weather")
+        logger.debug("Updating weather")
         metars = []
         for file in sorted_listing_by_creation_time(self._path):
             if file.startswith("metar"):
