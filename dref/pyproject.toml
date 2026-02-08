@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dref"
+version = "2025.1.0"
+
+dependencies = [
+  "streamdeck",
+]
+
+[project.scripts]
+decks = "dref.decks:run"
+
+[tool.flake8]
+exclude = [
+    ".git",
+    "__pycache__"
+]
+extend-ignore = [
+    "E501", "W503", "E203", "W504", "E251",
+    "E262", "E265", "E266",
+    "W291", "W293",
+    "F824"
+]

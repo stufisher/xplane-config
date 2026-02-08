@@ -1,0 +1,582 @@
+- deck_id: 0
+  name: "Electrical\nAC"
+  icon: "\uec1c"
+  keys:
+    - key_id: 0
+      key_type: text_button
+      key_options:
+        label: V
+        state_font: dseg
+      state_dataref: AirbusFBW/BatVolts[0]
+      static: true
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: Bat 1
+        text: OFF
+      state_dataref: sim/cockpit2/switches/beacon_on
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: Bat 2
+        text: OFF
+      state_dataref: sim/cockpit2/switches/beacon_on
+    - key_id: 3
+      key_type: text_button
+      key_options:
+        label: V
+        state_font: dseg
+      state_dataref: AirbusFBW/BatVolts[1]
+      static: true
+
+      # AirbusFBW/BatVolts
+      # AirbusFBW/BatOHPArray
+    - key_id: 11
+      key_type: illuminated_button
+      key_options:
+        label: Eng 1
+        text: ON
+        color: green
+      state_dataref: AirbusFBW/ENG1MasterSwitch
+
+    - key_id: 12
+      key_type: rotary_control
+      key_options:
+        label: Eng Mode
+        options:
+          - CRNK
+          - NORM
+          - IGN
+      state_dataref: AirbusFBW/ENGModeSwitch
+      translate_press: translate_press_iterate,3
+
+    - key_id: 13
+      key_type: illuminated_button
+      key_options:
+        label: Eng 2
+        text: ON
+        color: green
+      state_dataref: AirbusFBW/ENG2MasterSwitch
+
+    - key_id: 4
+      key_type: illuminated_button
+      key_options:
+        label: EXT PWR
+        text: ON
+        color: blue
+        secondary_text: AVAIL
+        secondary_color: green
+      state_dataref: AirbusFBW/EnableExternalPower
+      # secondary_dataref: AirbusFBW/ECPAvail
+      secondary_dataref: AirbusFBW/ExtPowOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      # AirbusFBW/ExtPowOHPArray[0] = 2 = used 1 = connected
+
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: APU Master
+        text: ON
+        color: blue
+      state_dataref: AirbusFBW/APUMaster
+
+    - key_id: 10
+      key_type: illuminated_button
+      key_options:
+        label: APU Start
+        text: ON
+        color: blue
+        secondary_text: AVAIL
+        secondary_color: green
+      state_dataref: AirbusFBW/APUStarter
+      secondary_dataref: AirbusFBW/APUAvail
+
+    - key_id: 7
+      key_type: illuminated_button
+      key_options:
+        label: APU Bleed
+        text: ON
+        color: blue
+      state_dataref: AirbusFBW/APUBleedSwitch
+
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: Pack 1
+      state_dataref: AirbusFBW/Pack1Switch
+      secondary_dataref: AirbusFBW/OHPLightsATA21_Raw[7]
+
+    - key_id: 8
+      key_type: illuminated_button
+      key_options:
+        label: Pack 2
+      state_dataref: AirbusFBW/Pack2Switch
+      secondary_dataref: AirbusFBW/OHPLightsATA21_Raw[9]
+
+- deck_id: 1
+  name: "Fuel\nAI"
+  icon: "\ue546"
+  keys:
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: CTR TK 1
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: XFEED
+        text: ON
+        color: white
+        secondary_text: OPEN
+        secondary_color: green
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: MODE
+        text: MAN
+    - key_id: 3
+      key_type: illuminated_button
+      key_options:
+        label: CTR TK 2
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: L TK 1
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: L TK 2
+    - key_id: 7
+      key_type: illuminated_button
+      key_options:
+        label: R TK 1
+    - key_id: 8
+      key_type: illuminated_button
+      key_options:
+        label: R TK 2
+
+    - key_id: 10
+      key_type: illuminated_button
+      key_options:
+        label: AI Eng 1
+        text: ON
+        color: blue
+      state_dataref: AirbusFBW/ENG1AISwitch
+      secondary_dataref: AirbusFBW/ENG1AILights
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 11
+      key_type: illuminated_button
+      key_options:
+        label: AI Eng 2
+        text: ON
+        color: blue
+      state_dataref: AirbusFBW/ENG2AISwitch
+      secondary_dataref: AirbusFBW/ENG2AILights
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 12
+      key_type: illuminated_button
+      key_options:
+        label: AI Wing
+        text: ON
+        color: blue
+      state_dataref: AirbusFBW/WAISwitch
+      secondary_dataref: AirbusFBW/WAILights
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 13
+      key_type: illuminated_button
+      key_options:
+        label: AI Window
+        text: ON
+        color: blue
+      # state_dataref: sim/cockpit/switches/anti_ice_window_heat
+      state_dataref: AirbusFBW/ProbeHeatSwitch
+
+- deck_id: 2
+  name: Lighting
+  icon: "\ue0f0"
+  keys:
+    - key_id: 0
+      key_type: rotary_control
+      key_options:
+        label: Strobe
+        options:
+          - Off
+          - Auto
+          - On
+      state_dataref: sim/cockpit2/switches/strobe_lights_on
+      translate_press: translate_press_iterate,3
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: Beacon
+        text: ON
+        color: green
+        secondary_text: ""
+      state_dataref: sim/cockpit2/switches/beacon_on
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: Wing
+        text: ON
+        color: green
+        secondary_text: ""
+    - key_id: 3
+      key_type: rotary_control
+      key_options:
+        label: Nav Logo
+        options:
+          - Off
+          - "1"
+          - "2"
+      state_dataref: sim/cockpit2/switches/navigation_lights_on
+      translate_press: translate_press_iterate,3
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: RWY Turn Off
+        text: ON
+        color: green
+        secondary_text: ""
+    - key_id: 6
+      key_type: rotary_control
+      key_options:
+        label: Land L
+        options:
+          - Rtr
+          - Off
+          - On
+      state_dataref: sim/cockpit2/switches/landing_lights_switch[0]
+      translate_press: translate_press_iterate,3
+    - key_id: 7
+      key_type: rotary_control
+      key_options:
+        label: Land R
+        options:
+          - Rtr
+          - Off
+          - On
+      state_dataref: sim/cockpit2/switches/landing_lights_switch[1]
+      translate_press: translate_press_iterate,3
+    - key_id: 8
+      key_type: rotary_control
+      key_options:
+        label: Nose
+        options:
+          - Off
+          - Taxi
+          - TO
+      state_dataref: sim/cockpit2/switches/taxi_light_on
+      translate_press: translate_press_iterate,3
+    - key_id: 10
+      key_type: illuminated_button
+      key_options:
+        label: Seatbelts
+        text: ON
+        color: green
+        secondary_text: ""
+      state_dataref: sim/cockpit/switches/fasten_seat_belts
+    - key_id: 11
+      key_type: rotary_control
+      key_options:
+        label: No Smoking
+        options:
+          - Off
+          - Auto
+          - On
+      state_dataref: sim/cockpit/switches/no_smoking
+      translate_press: translate_press_iterate,3
+    - key_id: 12
+      key_type: rotary_control
+      key_options:
+        label: Emer Exit
+        options:
+          - Off
+          - Arm
+          - On
+      translate_press: translate_press_iterate,3
+
+- deck_id: 3
+  name: Landing Gear
+  icon: "\ue904"
+  keys:
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: LDG 1
+        text: DOWN
+        secondary_text: UNLK
+        secondary_color: red
+      state_dataref: AirbusFBW/NoseGearInd
+      secondary_dataref: sim/cockpit2/annunciators/gear_unsafe
+      static: true
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: LDG 2
+        text: DOWN
+        secondary_text: UNLK
+        secondary_color: red
+      state_dataref: AirbusFBW/LeftGearInd
+      secondary_dataref: sim/cockpit2/annunciators/gear_unsafe
+      static: true
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: LDG 3
+        text: DOWN
+        secondary_text: UNLK
+        secondary_color: red
+      state_dataref: AirbusFBW/RightGearInd
+      secondary_dataref: sim/cockpit2/annunciators/gear_unsafe
+      static: true
+
+    - key_id: 3
+      key_type: illuminated_button
+      key_options:
+        label: Brk Fan
+        text: ON
+        color: blue
+        secondary_text: HOT
+      state_dataref: AirbusFBW/BrakeFan
+      secondary_dataref:
+        - AirbusFBW/BrakeTemperatureArray[0]
+        - AirbusFBW/BrakeTemperatureArray[1]
+        - AirbusFBW/BrakeTemperatureArray[2]
+      translate_secondary_dataref: translate_dref_value_bool,300,greater
+
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: Auto Brk Lo
+        text: ON
+        color: blue
+        secondary_text: DECEL
+        secondary_color: green
+      state_dataref: AirbusFBW/AutoBrkLo
+      secondary_dataref: AirbusFBW/AutoBrkLo
+      translate_secondary_dataref: translate_dref_value_bool,2
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: Auto Brk Med
+        text: ON
+        color: blue
+        secondary_text: DECEL
+        secondary_color: green
+      state_dataref: AirbusFBW/AutoBrkMed
+      secondary_dataref: AirbusFBW/AutoBrkMed
+      translate_secondary_dataref: translate_dref_value_bool,2
+    - key_id: 7
+      key_type: illuminated_button
+      key_options:
+        label: Auto Brk Max
+        text: ON
+        color: blue
+        secondary_text: DECEL
+        secondary_color: green
+      state_dataref: AirbusFBW/AutoBrkMax
+      secondary_dataref: AirbusFBW/AutoBrkMax
+      translate_secondary_dataref: translate_dref_value_bool,2
+
+    - key_id: 8
+      key_type: illuminated_button
+      key_options:
+        label: Anti Skid
+        text: ON
+        color: green
+      state_dataref: AirbusFBW/NWSnAntiSkid
+
+    - key_id: 10
+      key_type: text_button
+      key_options:
+        label: Accu Pres
+        state_font: dseg
+      state_dataref: sim/cockpit2/hydraulics/indicators/accumulator_pressure_ps
+      static: true
+    - key_id: 11
+      key_type: text_button
+      key_options:
+        label: Brake L Pres
+        state_font: dseg
+      state_dataref: sim/cockpit2/braking/left_brake_pressure_psi
+      static: true
+    - key_id: 12
+      key_type: text_button
+      key_options:
+        label: Brake R Pres
+        state_font: dseg
+      state_dataref: sim/cockpit2/braking/right_brake_pressure_psi
+      static: true
+
+- deck_id: 4
+  name: "Radar\nTCAS"
+  icon: "\uf04e"
+  keys:
+    - key_id: 2
+      key_type: rotary_control
+      key_options:
+        label: TCAS
+        options:
+          - Stby
+          - TA
+          - TA/RA
+      state_dataref: AirbusFBW/XPDRPower
+      translate_press: translate_press_iterate,3
+
+    - key_id: 3
+      key_type: rotary_control
+      key_options:
+        label: TCAS Traffic
+        options:
+          - THRT
+          - All
+          - ABV
+          - BLW
+      state_dataref: AirbusFBW/XPDRTCASMode
+      translate_press: translate_press_iterate,4
+
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: Alt RPTG
+        text: ON
+        color: green
+        secondary_text: ""
+      state_dataref: AirbusFBW/XPDRTCASAltSelect
+
+    - key_id: 0
+      key_type: rotary_control
+      key_options:
+        label: ATC
+        options:
+          - Stby
+          - Auto
+          - On
+      state_dataref: AirbusFBW/XPDR1
+      translate_press: translate_press_iterate,3
+
+    - key_id: 5
+      key_type: text_button
+      key_options:
+        state_font: dseg
+      state_dataref: sim/cockpit/radios/transponder_code
+      translate_dataref: translate_dref_character,0
+      translate_press: translate_press_iterate,9,0
+
+    - key_id: 6
+      key_type: text_button
+      key_options:
+        state_font: dseg
+      state_dataref: sim/cockpit/radios/transponder_code
+      translate_dataref: translate_dref_character,1
+      translate_press: translate_press_iterate,9,1
+
+    - key_id: 7
+      key_type: text_button
+      key_options:
+        state_font: dseg
+      state_dataref: sim/cockpit/radios/transponder_code
+      translate_dataref: translate_dref_character,2
+      translate_press: translate_press_iterate,9,2
+
+    - key_id: 8
+      key_type: text_button
+      key_options:
+        state_font: dseg
+      state_dataref: sim/cockpit/radios/transponder_code
+      translate_dataref: translate_dref_character,3
+      translate_press: translate_press_iterate,9,3
+
+    - key_id: 9
+      key_type: text_button
+      key_options:
+        label: IDENT
+      # sim/transponder/transponder_ident
+
+    - key_id: 10
+      key_type: rotary_control
+      key_options:
+        label: Sys
+        options:
+          - "1"
+          - Off
+          - "2"
+      state_dataref: AirbusFBW/WXPowerSwitch
+      translate_press: translate_press_iterate,3
+    - key_id: 11
+      key_type: rotary_control
+      key_options:
+        label: Mode
+        options:
+          - WX
+          - WX+T
+          - TURB
+          - MAP
+      state_dataref: AirbusFBW/WXSwitchMode
+      translate_press: translate_press_iterate,4
+    - key_id: 12
+      key_type: rotary_control
+      key_options:
+        label: PWS
+        options:
+          - Off
+          - On
+      state_dataref: AirbusFBW/WXSwitchPWS
+      translate_press: translate_press_iterate,2
+    - key_id: 13
+      key_type: rotary_control
+      key_options:
+        label: Multiscan
+        options:
+          - Off
+          - On
+      state_dataref: AirbusFBW/WXSwitchMultiscan
+      translate_press: translate_press_iterate,2
+
+- deck_id: 6
+  name: Hydraulics
+  icon: "\uf5d8"
+  keys:
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: Eng 1 Pump
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: Elec Pump
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: PTU
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 3
+      key_type: illuminated_button
+      key_options:
+        label: Eng 2 Pump
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 8
+      key_type: illuminated_button
+      key_options:
+        label: Elec Pump
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: Rat
+        text: ON
+      state_dataref: AirbusFBW/HydOHPArray[0]
+      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
