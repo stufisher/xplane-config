@@ -16,13 +16,18 @@ def translate_press(value: int):
 def translate_press_iterate(max_iterate: str, char_id: str = None):
     def translate_iterate(value: int):
         if char_id:
-            str_value = str(value)
+            str_value = str(int(value))
             value = int(str_value[int(char_id)])
 
         if value == int(max_iterate) - 1:
             value = 0
         else:
             value += 1
+
+        if char_id:
+            str_list = list(str_value)
+            str_list[int(char_id)] = str(value)
+            value = int("".join(str_list))
         return value
 
     return translate_iterate
@@ -105,6 +110,7 @@ class DeckKeyMapping:
     translate_dataref: Callable[[int | None], any] = None
     translate_secondary_dataref: Callable[[int | None], any] = None
     translate_press: Callable[[str], int] = None
+    command_press_toggle: str = None
     command_press_up: str = None
     command_press_down: str = None
     translate_command_press: Callable[
@@ -152,10 +158,11 @@ class Decks:
             return
         self.update_faults()
         for dref, value in drefs.items():
-            key = self.key_for_dref_in_current_deck(dref)
-            if key:
-                print(dref, value, key)
-                self.update_key(key.key_id)
+            keys = self.key_for_dref_in_current_deck(dref)
+            if keys:
+                for key in keys:
+                    print(dref, value, key)
+                    self.update_key(key.key_id)
 
     def get_all_drefs(self):
         drefs = []
@@ -172,7 +179,7 @@ class Decks:
                     else:
                         drefs.append(key.secondary_dataref)
 
-        return drefs
+        return list(set(drefs))
 
     def _key_change_callback(self, key, state):
         if not state:
@@ -184,7 +191,7 @@ class Decks:
                     self._is_home = False
                     self.update_deck()
 
-        elif key == 14:
+        elif key == self._deck.key_count - 1:
             self._is_home = True
             self.update_deck()
 
@@ -196,7 +203,9 @@ class Decks:
                         return
                     if deck_key.state_dataref:
                         dref_value = self._udp.get_dref_value(deck_key.state_dataref)
-                        if (
+                        if deck_key.command_press_toggle:
+                            self._udp.execute_command(deck_key.command_press_toggle)
+                        elif (
                             deck_key.command_press_up
                             and deck_key.command_press_up
                             and deck_key.translate_command_press
@@ -254,16 +263,18 @@ class Decks:
             state_font_size=1.5,
             notification=has_fault,
         )
-        self._deck.update_key(14, image)
+        self._deck.update_key(self._deck.key_count - 1, image)
 
     def key_for_dref_in_current_deck(self, dref: str):
         mapping = self.get_current_deck()
+        mapping_keys = []
         for mapping_key in mapping.keys:
             if (
                 dref == mapping_key.state_dataref
                 or dref == mapping_key.secondary_dataref
             ):
-                return mapping_key
+                mapping_keys.append(mapping_key)
+        return mapping_keys
 
     def get_mapping_key(self, key_id: int):
         mapping = self.get_current_deck()
@@ -302,11 +313,13 @@ class Decks:
                 )
                 secondary_state = translator(secondary_state)
 
+            return secondary_state
+
     def update_faults(self):
         for deck in self._mapping:
             deck.has_fault = False
             for mapping_key in deck.keys:
-                # Assume detaul is fault
+                # Assume default is FAULT
                 if "secondary_text" not in mapping_key.key_options:
                     secondary_dref = self._get_secondary_dref(mapping_key)
                     if secondary_dref:

@@ -160,8 +160,13 @@ class UDP:
                     logger.info("Subscribing to drefs")
                     with self.socket_lock:
                         for dref_id, dref in enumerate(self._dref_buffer.keys()):
+                            dref_and_opts = dref.split(",")
                             msg = struct.pack(
-                                "<4sxii400s", b"RREF", 2, dref_id, dref.encode("utf-8")
+                                "<4sxii400s",
+                                b"RREF",
+                                2,
+                                dref_id,
+                                dref_and_opts[0].encode("utf-8"),
                             )
                             self._xplane_socket.sendto(msg, self._xplane_address)
 
@@ -175,7 +180,7 @@ class UDP:
         while self.running:
             ready_to_read, _, _ = select.select([self._xplane_socket], [], [], 1)
             if ready_to_read:
-                data, addr = ready_to_read.recvfrom(2048)
+                data, addr = ready_to_read[0].recvfrom(2048)
                 header = data[:4]
                 if header == b"RREF":
                     dref_bytes = data[5:]
@@ -184,6 +189,9 @@ class UDP:
                     for dref in drefs:
                         dref_key = dref_lookup[dref[0]]
                         if dref_key in self._dref_buffer:
+                            dref_opts = dref_key.split(",")
+                            if len(dref_opts) > 1:
+                                dref[1] = round(dref[1], int(dref_opts[1]))
                             if dref[1] != self._dref_buffer[dref_key]:
                                 changed[dref_key] = dref[1]
                         else:
