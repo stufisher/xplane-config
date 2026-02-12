@@ -115,6 +115,8 @@ class UDP:
         self.subscribe_thread.join()
         self.parse_thread.join()
 
+        self._subscribe(0)
+
     def get_dref_value(self, dref: str | list[str]):
         if isinstance(dref, list):
             return [self._dref_buffer.get(d) for d in dref]
@@ -152,24 +154,26 @@ class UDP:
             time.sleep(1)
         logger.info("beacon task ended")
 
+    def _subscribe(self, interval: int = 3):
+        with self.socket_lock:
+            for dref_id, dref in enumerate(self._dref_buffer.keys()):
+                dref_and_opts = dref.split(",")
+                msg = struct.pack(
+                    "<4sxii400s",
+                    b"RREF",
+                    interval,
+                    dref_id,
+                    dref_and_opts[0].encode("utf-8"),
+                )
+                self._xplane_socket.sendto(msg, self._xplane_address)
+
     def subscribe_task(self):
         while self.running:
             logger.debug("Subscribe thread running")
             with self._state_lock:
                 if self._should_subscribe and self._xplane_address:
                     logger.info("Subscribing to drefs")
-                    with self.socket_lock:
-                        for dref_id, dref in enumerate(self._dref_buffer.keys()):
-                            dref_and_opts = dref.split(",")
-                            msg = struct.pack(
-                                "<4sxii400s",
-                                b"RREF",
-                                2,
-                                dref_id,
-                                dref_and_opts[0].encode("utf-8"),
-                            )
-                            self._xplane_socket.sendto(msg, self._xplane_address)
-
+                    self._subscribe()
                     self._should_subscribe = False
 
             time.sleep(1)
@@ -212,6 +216,7 @@ class UDP:
 
     def set_dref(self, dref: str, value: any):
         msg = struct.pack("<4sxf500s", b"DREF", value, dref.encode("utf-8"))
+        print("set dref", dref, value)
         with self.socket_lock:
             self._xplane_socket.sendto(msg, self._xplane_address)
 
@@ -228,13 +233,23 @@ if __name__ == "__main__":
             print("drefs", drefs)
 
         drefs = [
-            "AirbusFBW/APUBleedSwitch",
-            "AirbusFBW/APUMaster",
-            "AirbusFBW/APUAvail",
-            "AirbusFBW/APUStarter",
+            # "AirbusFBW/APUBleedSwitch",
+            # "AirbusFBW/APUMaster",
+            # "AirbusFBW/APUAvail",
+            # "AirbusFBW/APUStarter",
+            # "AirbusFBW/OHPLightsATA28_Raw[5]",
+            # "AirbusFBW/OHPLightsATA28_Raw[6]", # RTXF OFF
+            # "AirbusFBW/OHPLightsATA28_Raw[7]",
+            # "AirbusFBW/OHPLightsATA28_Raw[8]",
+            # "AirbusFBW/OHPLightsATA28_Raw[9]",
+            "AirbusFBW/OHPLightsATA28_Raw[14]",
+            "AirbusFBW/OHPLightsATA28_Raw[15]",
         ]
 
         udp = UDP(drefs, on_dref_changed)
+
+        while 1:
+            time.sleep(1)
 
     except KeyboardInterrupt:
         pass

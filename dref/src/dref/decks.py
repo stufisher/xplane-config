@@ -136,7 +136,7 @@ class Decks:
         self._deck.key_change_callback = self._key_change_callback
         self._udp = UDP(self.get_all_drefs(), self.on_drefs_changed)
 
-        self._current_deck = 0
+        self._current_deck = 1
         self._is_home = False
         self.update_deck()
 

@@ -106,9 +106,11 @@ def illuminated_button(
             outline=ILLUMINATED_COLORS[color] if state else off_color,
             width=2,
         )
-    font = ImageFont.truetype(FONTS[text_font], round(img.width * 0.23))
+
+    font_scale = 1 if rectangle else 2
+    font = ImageFont.truetype(FONTS[text_font], round(img.width * 0.23 * font_scale))
     draw.text(
-        (img.width / 2, img.height * 3 / 5 + 17),
+        (img.width / 2, img.height * 3 / 5 + 17 * font_scale),
         text,
         font=font,
         align="center",
@@ -261,7 +263,13 @@ def rotary_control(label="Options", options=["ONE", "TWO", "THRE"], state=0):
     return img
 
 
-def arc_gauge(label: str = "Gauge", state=2.5, gauge_range=[0, 3], ok_range=[0, 1]):
+def arc_gauge(
+    label: str = "Gauge",
+    state=2.5,
+    gauge_range=[0, 3],
+    ok_range=[0, 1],
+    is_normalised=False,
+):
     if not isinstance(state, float):
         try:
             state = float(state)
@@ -328,16 +336,20 @@ def arc_gauge(label: str = "Gauge", state=2.5, gauge_range=[0, 3], ok_range=[0, 
         fill=(170, 170, 170),
     )
 
+    total_range = gauge_range[1] - gauge_range[0]
+    offset = gauge_range[0]
+    normalised_state = (
+        round(state * total_range + offset, 1) if is_normalised else state
+    )
+
     state_font = ImageFont.truetype(FONTS["dseg"], round(img.width * 0.25))
     draw.text(
         (border, img.height * 0.7),
-        str(state),
+        str(normalised_state),
         font=state_font,
         fill="white",
     )
 
-    total_range = gauge_range[1] - gauge_range[0]
-    offset = gauge_range[0]
     ok_start = (ok_range[0] - offset) / total_range
     ok_end = (ok_range[1] - offset) / total_range
     draw.arc(
@@ -353,7 +365,7 @@ def arc_gauge(label: str = "Gauge", state=2.5, gauge_range=[0, 3], ok_range=[0, 
         fill=ILLUMINATED_COLORS["green"],
     )
 
-    scaled_state = (state - offset) / total_range
+    scaled_state = (normalised_state - offset) / total_range
     draw.arc(
         (
             cx - arc_height - arc_height / 2,

@@ -128,6 +128,15 @@
       secondary_dataref: AirbusFBW/OHPLightsATA21_Raw[9]
       command_press_toggle: toliss_airbus/aircondcommands/Pack2Toggle
 
+    - key_id: 9
+      key_type: illuminated_button
+      key_options:
+        label: CONN EXT
+        text: CONN
+        color: green
+        secondary_text: ""
+      state_dataref: AirbusFBW/EnableExternalPower
+
 - deck_id: 1
   name: "Fuel\nAI"
   icon: "\ue546"
@@ -135,49 +144,76 @@
     - key_id: 0
       key_type: illuminated_button
       key_options:
-        label: CTR TK 1
-      state_dataref: AirbusFBW/FuelOHPArrays[0]
-      secondary_dataref: AirbusFBW/FuelOHPArrays[1]
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+        label: CTK L XFR
+        secondary_text: OPEN
+        secondary_color: green
+      state_dataref: AirbusFBW/FuelOHPArray[2]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[5]
 
     - key_id: 1
       key_type: illuminated_button
       key_options:
-        label: XFEED
-        text: ON
-        secondary_text: OPEN
-        secondary_color: green
+        label: MODE
+        text: MAN
+      state_dataref: AirbusFBW/FuelOHPArray[6]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[13]
 
     - key_id: 2
       key_type: illuminated_button
       key_options:
-        label: MODE
-        text: MAN
+        label: XFEED
+        text: ON
+        color: blue
+        secondary_text: OPEN
+        secondary_color: green
+      state_dataref: AirbusFBW/FuelOHPArray[7]
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[15]
 
     - key_id: 3
       key_type: illuminated_button
       key_options:
-        label: CTR TK 2
+        label: CTK R XFR
+        secondary_text: OPEN
+        secondary_color: green
+      state_dataref: AirbusFBW/FuelOHPArray[3]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[7]
 
     - key_id: 5
       key_type: illuminated_button
       key_options:
         label: L TK 1
+      state_dataref: AirbusFBW/FuelOHPArray[0]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/FuelPumpOHPArray[0]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
 
     - key_id: 6
       key_type: illuminated_button
       key_options:
         label: L TK 2
+      state_dataref: AirbusFBW/FuelOHPArray[1]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/FuelPumpOHPArray[1]
+      translate_secondary_dataref: translate_dref_value_bool,1,greater
 
     - key_id: 7
       key_type: illuminated_button
       key_options:
         label: R TK 1
+      state_dataref: AirbusFBW/FuelOHPArray[4]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[9]
 
     - key_id: 8
       key_type: illuminated_button
       key_options:
         label: R TK 2
+      state_dataref: AirbusFBW/FuelOHPArray[5]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[11]
 
     - key_id: 10
       key_type: illuminated_button
@@ -222,6 +258,7 @@
   name: Lighting
   icon: "\ue0f0"
   keys:
+    # AirbusFBW/OHPLightSwitches
     - key_id: 0
       key_type: rotary_control
       key_options:
@@ -250,7 +287,6 @@
         color: green
         secondary_text: ""
       state_dataref: ckpt/oh/wingLight/anim
-
 
     - key_id: 3
       key_type: rotary_control
@@ -406,6 +442,7 @@
       state_dataref: AirbusFBW/AutoBrkLo
       secondary_dataref: AirbusFBW/AutoBrkLo
       translate_secondary_dataref: translate_dref_value_bool,2
+      command_press_toggle: AirbusFBW/AbrkLo
 
     - key_id: 6
       key_type: illuminated_button
@@ -418,6 +455,7 @@
       state_dataref: AirbusFBW/AutoBrkMed
       secondary_dataref: AirbusFBW/AutoBrkMed
       translate_secondary_dataref: translate_dref_value_bool,2
+      command_press_toggle: AirbusFBW/AbrkMed
 
     - key_id: 7
       key_type: illuminated_button
@@ -430,6 +468,7 @@
       state_dataref: AirbusFBW/AutoBrkMax
       secondary_dataref: AirbusFBW/AutoBrkMax
       translate_secondary_dataref: translate_dref_value_bool,2
+      command_press_toggle: AirbusFBW/AbrkMax
 
     - key_id: 8
       key_type: illuminated_button
@@ -443,8 +482,9 @@
       key_type: arc_gauge
       key_options:
         label: Accu
-        gauge_range: [0,4]
-        ok_range: [3,3.5]
+        gauge_range: [0, 4]
+        ok_range: [3, 3.5]
+        is_normalised: true
       state_dataref: AirbusFBW/BrakeAccu
       static: true
 
@@ -452,6 +492,7 @@
       key_type: arc_gauge
       key_options:
         label: Brake L
+        is_normalised: true
       state_dataref: AirbusFBW/LeftBrakeNeedle,1
       static: true
 
@@ -459,6 +500,7 @@
       key_type: arc_gauge
       key_options:
         label: Brake R
+        is_normalised: true
       state_dataref: AirbusFBW/RightBrakeNeedle,1
       static: true
 
@@ -599,46 +641,51 @@
       key_options:
         label: Eng 1 Pump
       state_dataref: AirbusFBW/HydOHPArray[0]
+      translate_dataref: translate_dref_value_bool,0
       secondary_dataref: AirbusFBW/HydOHPArray[0]
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      translate_secondary_dataref: translate_dref_value_bool,2
 
     - key_id: 1
       key_type: illuminated_button
       key_options:
         label: Elec Pump
-      state_dataref: AirbusFBW/HydOHPArray[0]
-      secondary_dataref: AirbusFBW/HydOHPArray[0]
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      state_dataref: AirbusFBW/HydOHPArray[2]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/HydOHPArray[2]
+      translate_secondary_dataref: translate_dref_value_bool,2
 
     - key_id: 2
       key_type: illuminated_button
       key_options:
         label: PTU
-      state_dataref: AirbusFBW/HydOHPArray[0]
-      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      state_dataref: AirbusFBW/HydOHPArray[4]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/HydOHPArray[4]
       translate_secondary_dataref: translate_dref_value_bool,1,greater
 
     - key_id: 3
       key_type: illuminated_button
       key_options:
         label: Eng 2 Pump
-      state_dataref: AirbusFBW/HydOHPArray[0]
-      secondary_dataref: AirbusFBW/HydOHPArray[0]
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      state_dataref: AirbusFBW/HydOHPArray[1]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/HydOHPArray[1]
+      translate_secondary_dataref: translate_dref_value_bool,2
 
     - key_id: 8
       key_type: illuminated_button
       key_options:
+        text: ON
         label: Elec Pump
-      state_dataref: AirbusFBW/HydOHPArray[0]
-      secondary_dataref: AirbusFBW/HydOHPArray[0]
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      state_dataref: AirbusFBW/HydOHPArray[3]
+      secondary_dataref: AirbusFBW/HydPumpOHPArray[3]
+      translate_secondary_dataref: translate_dref_value_bool,2
 
     - key_id: 6
       key_type: illuminated_button
       key_options:
         label: Rat
         text: ON
-      state_dataref: AirbusFBW/HydOHPArray[0]
-      secondary_dataref: AirbusFBW/HydOHPArray[0]
+      state_dataref: AirbusFBW/HydOHPArray[5]
+      secondary_dataref: AirbusFBW/HydOHPArray[5]
       translate_secondary_dataref: translate_dref_value_bool,1,greater
