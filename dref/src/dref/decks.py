@@ -136,8 +136,8 @@ class Decks:
         self._deck.key_change_callback = self._key_change_callback
         self._udp = UDP(self.get_all_drefs(), self.on_drefs_changed)
 
-        self._current_deck = 1
-        self._is_home = False
+        self._current_deck = 0
+        self._is_home = True
         self.update_deck()
 
     def load_mapping(self):
@@ -161,7 +161,7 @@ class Decks:
             keys = self.key_for_dref_in_current_deck(dref)
             if keys:
                 for key in keys:
-                    print(dref, value, key)
+                    # print(dref, value)
                     self.update_key(key.key_id)
 
     def get_all_drefs(self):
@@ -274,6 +274,9 @@ class Decks:
                 or dref == mapping_key.secondary_dataref
             ):
                 mapping_keys.append(mapping_key)
+            if isinstance(mapping_key.secondary_dataref, list):
+                if dref in mapping_key.secondary_dataref:
+                    mapping_keys.append(mapping_key)
         return mapping_keys
 
     def get_mapping_key(self, key_id: int):

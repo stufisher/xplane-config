@@ -237,13 +237,6 @@ if __name__ == "__main__":
             # "AirbusFBW/APUMaster",
             # "AirbusFBW/APUAvail",
             # "AirbusFBW/APUStarter",
-            # "AirbusFBW/OHPLightsATA28_Raw[5]",
-            # "AirbusFBW/OHPLightsATA28_Raw[6]", # RTXF OFF
-            # "AirbusFBW/OHPLightsATA28_Raw[7]",
-            # "AirbusFBW/OHPLightsATA28_Raw[8]",
-            # "AirbusFBW/OHPLightsATA28_Raw[9]",
-            "AirbusFBW/OHPLightsATA28_Raw[14]",
-            "AirbusFBW/OHPLightsATA28_Raw[15]",
         ]
 
         udp = UDP(drefs, on_dref_changed)
