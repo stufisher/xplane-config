@@ -533,75 +533,76 @@
       key_options:
         label: TCAS
         options:
-          - Stby
+          - STBY
+          - ALT
+          - XPDR
           - TA
           - TA/RA
       state_dataref: AirbusFBW/XPDRPower
-      translate_press: translate_press_iterate,3
+      translate_press: translate_press_iterate,5
 
     - key_id: 3
       key_type: rotary_control
       key_options:
         label: TCAS Traffic
         options:
-          - THRT
-          - All
           - ABV
+          - N
           - BLW
-      state_dataref: AirbusFBW/XPDRTCASMode
-      translate_press: translate_press_iterate,4
+      state_dataref: AirbusFBW/XPDRTCASAltSelect
+      translate_press: translate_press_iterate,3
 
     - key_id: 1
-      key_type: illuminated_button
+      key_type: rotary_control
       key_options:
-        label: Alt RPTG
-        text: ON
-        color: green
-        secondary_text: ""
-      state_dataref: AirbusFBW/XPDRTCASAltSelect
-
+        label: Sys
+        options:
+          - "1"
+          - "2"
+      state_dataref: AirbusFBW/XPDRSystem
+      # translate_press: translate_press_iterate,2
+      
     - key_id: 0
       key_type: rotary_control
       key_options:
         label: ATC
         options:
-          - Stby
           - Auto
           - On
-      state_dataref: AirbusFBW/XPDR1
-      translate_press: translate_press_iterate,3
+      state_dataref: AirbusFBW/XPDRTCASMode
+      translate_press: translate_press_iterate,2
 
     - key_id: 5
       key_type: text_button
       key_options:
         state_font: dseg
       state_dataref: sim/cockpit/radios/transponder_code
-      translate_dataref: translate_dref_character,0
-      translate_press: translate_press_iterate,10,0
+      translate_dataref: translate_dref_character,0,4
+      translate_press: translate_press_iterate,10,0,4
 
     - key_id: 6
       key_type: text_button
       key_options:
         state_font: dseg
       state_dataref: sim/cockpit/radios/transponder_code
-      translate_dataref: translate_dref_character,1
-      translate_press: translate_press_iterate,10,1
+      translate_dataref: translate_dref_character,1,4
+      translate_press: translate_press_iterate,10,1,4
 
     - key_id: 7
       key_type: text_button
       key_options:
         state_font: dseg
       state_dataref: sim/cockpit/radios/transponder_code
-      translate_dataref: translate_dref_character,2
-      translate_press: translate_press_iterate,10,2
+      translate_dataref: translate_dref_character,2,4
+      translate_press: translate_press_iterate,10,2,4
 
     - key_id: 8
       key_type: text_button
       key_options:
         state_font: dseg
       state_dataref: sim/cockpit/radios/transponder_code
-      translate_dataref: translate_dref_character,3
-      translate_press: translate_press_iterate,10,3
+      translate_dataref: translate_dref_character,3,4
+      translate_press: translate_press_iterate,10,3,4
 
     - key_id: 9
       key_type: text_button
@@ -709,3 +710,29 @@
       state_dataref: AirbusFBW/HydOHPArray[5]
       secondary_dataref: AirbusFBW/HydOHPArray[5]
       translate_secondary_dataref: translate_dref_value_bool,1,greater
+
+    - key_id: 10
+      key_type: arc_gauge
+      key_options:
+        label: Accu
+        gauge_range: [0, 4]
+        ok_range: [3, 3.5]
+        is_normalised: true
+      state_dataref: AirbusFBW/BrakeAccu
+      static: true
+
+    - key_id: 11
+      key_type: arc_gauge
+      key_options:
+        label: Brake L
+        is_normalised: true
+      state_dataref: AirbusFBW/LeftBrakeNeedle,1
+      static: true
+
+    - key_id: 12
+      key_type: arc_gauge
+      key_options:
+        label: Brake R
+        is_normalised: true
+      state_dataref: AirbusFBW/RightBrakeNeedle,1
+      static: true

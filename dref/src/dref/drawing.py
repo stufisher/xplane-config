@@ -189,7 +189,12 @@ def rotary_control(label="Options", options=["ONE", "TWO", "THRE"], state=0):
         logger.warning(f"rotary control: {label} state={state} options={options}")
         state = len(options) - 1
 
-    angles = {2: [-60, 60], 3: [-60, 0, 60], 4: [-90, -35, 35, 90]}
+    angles = {
+        2: [-60, 60],
+        3: [-60, 0, 60],
+        4: [-90, -35, 35, 90],
+        5: [-90, -60, 0, 60, 90],
+    }
     img = create_image(72 * 3)
     draw = ImageDraw.Draw(img)
 

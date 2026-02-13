@@ -13,10 +13,12 @@ def translate_press(value: int):
     return 0 if value else 1
 
 
-def translate_press_iterate(max_iterate: str, char_id: str = None):
+def translate_press_iterate(max_iterate: str, char_id: str = None, length: int = None):
     def translate_iterate(value: int):
         if char_id:
-            str_value = str(int(value))
+            if not isinstance(value, int):
+                value = int(value)
+            str_value = f"{value:0{length}d}"
             value = int(str_value[int(char_id)])
 
         if value == int(max_iterate) - 1:
@@ -52,11 +54,13 @@ def command_press_iterate(max_iterate: str):
 COMMAND_TRANSLATORS = {"command_press_iterate": command_press_iterate}
 
 
-def translate_dref_character(char_id: str):
+def translate_dref_character(char_id: str, length: int = 4):
     char_id = int(char_id)
 
     def translate_dref(value: int):
-        char = str(value)
+        if not isinstance(value, int):
+            value = int(value)
+        char = f"{value:0{length}d}"
         if char_id < len(char):
             return char[char_id]
         else:
