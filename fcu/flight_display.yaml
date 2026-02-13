@@ -46,8 +46,8 @@ wifi:
         data: "HELLO"
 
 i2c:
-  sda: 21
-  scl: 25
+  sda: 26
+  scl: 32
   id: bus_a
   frequency: 800kHz
 
