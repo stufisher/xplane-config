@@ -142,7 +142,7 @@ mapping_out = [
 
   # Buttons Lower Row
   { ch = 11, cc = 25, type = "drf", dataref = "AirbusFBW/AutoBrkMax", value_on = "1", value_off = "0" },
-  #{ ch = 11, cc = 26, type = "drf", dataref = "", value_on = "", value_off = "" },
+  { ch = 11, cc = 26, type = "drf", dataref = "ckpt/speedbrakeUp/anim", value_on = "1", value_off = "0" },
   { ch = 11, cc = 27, type = "drf", dataref = "AirbusFBW/NDShowCSTRCapt", value_on = "1", value_off = "0" },
   { ch = 11, cc = 28, type = "drf", dataref = "AirbusFBW/TerrainSelectedND1", value_on = "1", value_off = "0" },
   { ch = 11, cc = 29, type = "drf", dataref = "AirbusFBW/AP1Engage", value_on = "1", value_off = "0" },
