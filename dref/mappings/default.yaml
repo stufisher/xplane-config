@@ -393,8 +393,8 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/NoseGearInd
-      secondary_dataref: AirbusFBW/NoseGearInd
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      # secondary_dataref: AirbusFBW/NoseGearInd
+      # translate_secondary_dataref: translate_dref_value_bool,1,greater
       static: true
 
     - key_id: 1
@@ -408,8 +408,8 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/LeftGearInd
-      secondary_dataref: AirbusFBW/LeftGearInd
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      # secondary_dataref: AirbusFBW/LeftGearInd
+      # translate_secondary_dataref: translate_dref_value_bool,1,greater
       static: true
 
     - key_id: 2
@@ -423,8 +423,8 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/RightGearInd
-      secondary_dataref: AirbusFBW/RightGearInd
-      translate_secondary_dataref: translate_dref_value_bool,1,greater
+      # secondary_dataref: AirbusFBW/RightGearInd
+      # translate_secondary_dataref: translate_dref_value_bool,1,greater
       static: true
 
     - key_id: 3
