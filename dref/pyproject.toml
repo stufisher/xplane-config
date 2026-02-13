@@ -7,7 +7,9 @@ name = "dref"
 version = "2025.1.0"
 
 dependencies = [
+  "ruamel.yaml"
   "streamdeck",
+  "pillow",
 ]
 
 [project.scripts]
