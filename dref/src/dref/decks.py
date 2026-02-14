@@ -88,9 +88,22 @@ def translate_dref_value_bool(compare_value: str, comparator="equal"):
     return translate_dref
 
 
+def translate_dref_gear_lever():
+    def translate_dref_gear_lever(values: int):
+        gear, lever = values
+
+        if lever == 1 and gear < 2:
+            return True
+        if lever == 0 and gear > 0:
+            return True
+
+    return translate_dref_gear_lever
+
+
 DREF_TRANSLATORS = {
     "translate_dref_character": translate_dref_character,
     "translate_dref_value_bool": translate_dref_value_bool,
+    "translate_dref_gear_lever": translate_dref_gear_lever,
 }
 
 
@@ -112,6 +125,7 @@ class DeckKeyMapping:
     state_dataref: str | list[str] = None
     secondary_dataref: str | list[str] = None
     translate_dataref: Callable[[int | None], any] = None
+    secondary_dataref_is_fault: bool = False
     translate_secondary_dataref: Callable[[int | None], any] = None
     translate_press: Callable[[str], int] = None
     command_press_toggle: str = None
@@ -326,8 +340,11 @@ class Decks:
         for deck in self._mapping:
             deck.has_fault = False
             for mapping_key in deck.keys:
-                # Assume default is FAULT
-                if "secondary_text" not in mapping_key.key_options:
+                if (
+                    # Assume default is FAULT
+                    "secondary_text" not in mapping_key.key_options
+                    or mapping_key.secondary_dataref_is_fault
+                ):
                     secondary_dref = self._get_secondary_dref(mapping_key)
                     if secondary_dref:
                         deck.has_fault = True
