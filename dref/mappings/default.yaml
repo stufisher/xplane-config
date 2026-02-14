@@ -518,6 +518,15 @@
       state_dataref: AirbusFBW/RightBrakeNeedle,1
       static: true
 
+    - key_id: 13
+      key_type: illuminated_button
+      key_options:
+        label: Park Brk
+        text: ON
+        color: green
+      state_dataref: sim/flightmodel/controls/parkbrake
+      command_press_toggle: toliss_airbus/park_brake_toggle
+
 - deck_id: 4
   name: "Radar\nTCAS"
   icon: "\uf04e"
