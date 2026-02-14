@@ -439,6 +439,21 @@
     - key_id: 3
       key_type: illuminated_button
       key_options:
+        label: Ldg Gear
+        text: DOWN
+        color: green
+        secondary_text: OPEN
+      state_dataref: AirbusFBW/GearLever
+      secondary_dataref:
+        - AirbusFBW/NoseGearDoorsOpen
+        - AirbusFBW/LeftMLGDoor
+        - AirbusFBW/RightMLGDoor
+      translate_secondary_dataref: translate_dref_value_bool,0,greater
+      secondary_dataref_is_fault: true
+
+    - key_id: 4
+      key_type: illuminated_button
+      key_options:
         label: Brk Fan
         text: ON
         color: blue
