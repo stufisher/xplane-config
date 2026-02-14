@@ -59,7 +59,6 @@ class FCU:
         self.listen_thread.join()
 
     def on_drefs_changed(self, drefs: dict[str, any]):
-        logger.info("dref changed", drefs)
         self.send_drefs(drefs.keys())
 
     def find_dref(self, dref: str):
@@ -71,10 +70,11 @@ class FCU:
         msg = b"RREF,"
         for dref in drefs:
             dref_details = self.find_dref(dref)
-            value = self._udp.get_dref_value(dref)
-            if dref == "sim/cockpit/misc/barometer_setting":
-                value *= 33.864
-            msg += struct.pack("<if", dref_details[2], value)
+            if dref_details:
+                value = self._udp.get_dref_value(dref)
+                if dref == "sim/cockpit/misc/barometer_setting":
+                    value *= 33.864
+                msg += struct.pack("<if", dref_details[1], value)
         self._esp_sock.sendto(msg, (self._esp_ip, self._esp_port))
 
     def refresh_all(self):

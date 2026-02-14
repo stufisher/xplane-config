@@ -362,6 +362,7 @@ class Decks:
 
     def close(self):
         self._udp.close()
+        self._fcu.close()
         self._deck.close()
 
 

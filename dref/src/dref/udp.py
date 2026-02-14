@@ -153,7 +153,7 @@ class UDP:
             time.sleep(1)
         logger.info("beacon task ended")
 
-    def _subscribe(self, interval: int = 3):
+    def _subscribe(self, interval: int = 5):
         with self.socket_lock:
             for dref_id, dref in enumerate(self._dref_buffer.keys()):
                 dref_and_opts = dref.split(",")
