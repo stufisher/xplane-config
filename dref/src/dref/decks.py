@@ -6,6 +6,7 @@ from typing import Callable
 
 from .drawing import KEY_TYPES, create_image
 from .deck import Deck
+from .fcu import FCU
 from .udp import UDP
 
 
@@ -152,8 +153,11 @@ class Decks:
         self.load_mapping()
         self._deck = Deck()
         self._deck.key_change_callback = self._key_change_callback
-        self._udp = UDP(self.get_all_drefs(), self.on_drefs_changed)
-
+        self._fcu = FCU()
+        self._udp = UDP(
+            self.get_all_drefs() + self._fcu.get_drefs(), self.on_drefs_changed
+        )
+        self._fcu.udp = self._udp
         self._current_deck = 0
         self._is_home = True
         self.update_deck()
@@ -172,6 +176,7 @@ class Decks:
             self._mapping.append(DeckMapping(**deck))
 
     def on_drefs_changed(self, drefs: dict[str, any]):
+        self._fcu.on_drefs_changed(drefs)
         if self._is_home:
             return
         self.update_faults()

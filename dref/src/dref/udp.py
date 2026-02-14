@@ -89,7 +89,6 @@ class UDP:
         self._xplane_address = []
         self._running = True
         self._should_subscribe = True
-        self._refresh_all = False
 
         self._dref_buffer = {key: None for key in drefs}
         self._on_drefs_changed = on_drefs_changed
@@ -150,7 +149,7 @@ class UDP:
                 with self.lock:
                     if not self._should_subscribe:
                         self._should_subscribe = True
-                        self._xplane_address = []
+                        self._xplane_address = ()
             time.sleep(1)
         logger.info("beacon task ended")
 
@@ -165,7 +164,10 @@ class UDP:
                     dref_id,
                     dref_and_opts[0].encode("utf-8"),
                 )
-                self._xplane_socket.sendto(msg, self._xplane_address)
+                try:
+                    self._xplane_socket.sendto(msg, self._xplane_address)
+                except Exception as e:
+                    logger.warning(f"Could not subscribe to X-Plane datarefs {str(e)}")
 
     def subscribe_task(self):
         while self.running:
@@ -206,12 +208,6 @@ class UDP:
                         if self._on_drefs_changed:
                             self._on_drefs_changed(changed)
 
-                    if self._refresh_all:
-                        logger.info("Refresh all")
-                        if self._on_drefs_changed:
-                            self._on_drefs_changed(self._dref_buffer)
-                        with self._state_lock:
-                            self._refresh_all = False
         logger.info("parse task ended")
 
     def set_dref(self, dref: str, value: any):
@@ -245,4 +241,4 @@ if __name__ == "__main__":
             time.sleep(1)
 
     except KeyboardInterrupt:
-        pass
+        udp.close()
