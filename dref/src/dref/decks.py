@@ -224,11 +224,11 @@ class Decks:
                 if deck_key.key_id == key:
                     if deck_key.static:
                         return
-                    if deck_key.state_dataref:
-                        dref_value = self._udp.get_dref_value(deck_key.state_dataref)
-                        if deck_key.command_press_toggle:
+                    if deck_key.command_press_toggle:
                             self._udp.execute_command(deck_key.command_press_toggle)
-                        elif (
+                    elif deck_key.state_dataref:
+                        dref_value = self._udp.get_dref_value(deck_key.state_dataref)
+                        if (
                             deck_key.command_press_up
                             and deck_key.command_press_up
                             and deck_key.translate_command_press

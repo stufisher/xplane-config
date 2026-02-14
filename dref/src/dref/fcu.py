@@ -89,7 +89,7 @@ class FCU:
                 self._esp_sock.bind((ip_addr, self._esp_port))
 
                 while self._running:
-                    ready_to_read, _, _ = select.select([self._esp_sock], [], [], 2)
+                    ready_to_read, _, _ = select.select([self._esp_sock], [], [], 1)
                     if ready_to_read:
                         data1, addr1 = ready_to_read[0].recvfrom(2048)
                         logger.info("ESP: %s %s", data1, addr1)

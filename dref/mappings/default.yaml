@@ -347,37 +347,6 @@
       state_dataref: AirbusFBW/OHPLightSwitches[3]
       translate_press: translate_press_iterate,3
 
-    - key_id: 10
-      key_type: illuminated_button
-      key_options:
-        label: Seatbelts
-        text: ON
-        color: green
-        secondary_text: ""
-      state_dataref: AirbusFBW/OHPLightSwitches[11]
-
-    - key_id: 11
-      key_type: rotary_control
-      key_options:
-        label: No Smoking
-        options:
-          - Off
-          - Auto
-          - On
-      state_dataref: AirbusFBW/OHPLightSwitches[12]
-      translate_press: translate_press_iterate,3
-
-    - key_id: 12
-      key_type: rotary_control
-      key_options:
-        label: Emer Exit
-        options:
-          - Off
-          - Arm
-          - On
-      state_dataref: AirbusFBW/OHPLightSwitches[10]
-      translate_press: translate_press_iterate,3
-
 - deck_id: 3
   name: Landing Gear
   icon: "\ue904"
@@ -861,3 +830,60 @@
       translate_dataref: translate_dref_value_bool,0
       secondary_dataref: AirbusFBW/ADRLights[2]
       translate_secondary_dataref: translate_dref_value_bool,3
+
+- deck_id: 7
+  name: Cabin
+  icon: "\ue7cb"
+  keys:
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: Seatbelts
+        text: ON
+        color: green
+        secondary_text: ""
+      state_dataref: AirbusFBW/OHPLightSwitches[11]
+
+    - key_id: 1
+      key_type: rotary_control
+      key_options:
+        label: No Smoking
+        options:
+          - Off
+          - Auto
+          - On
+      state_dataref: AirbusFBW/OHPLightSwitches[12]
+      translate_press: translate_press_iterate,3
+
+    - key_id: 2
+      key_type: rotary_control
+      key_options:
+        label: Emer Exit
+        options:
+          - Off
+          - Arm
+          - On
+      state_dataref: AirbusFBW/OHPLightSwitches[10]
+      translate_press: translate_press_iterate,3
+
+    - key_id: 4
+      key_type: push_button
+      key_options:
+        label: Call
+      command_press_toggle: "AirbusFBW/CheckCabin"
+
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: Pass Ox
+        secondary_text: SYS ON
+        secondary_color: blue
+      state_dataref: AirbusFBW/PaxOxySwitch
+      secondary_dataref: AirbusFBW/PaxOxyMask
+
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: Crew Ox
+      state_dataref: AirbusFBW/CrewOxySwitch
+      translate_dataref: translate_dref_value_bool,0
