@@ -761,3 +761,103 @@
         is_normalised: true
       state_dataref: AirbusFBW/RightBrakeNeedle,1
       static: true
+
+- deck_id: 5
+  name: ADIRS
+  icon: "\ue9e4"
+  keys:
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: IR 1
+      state_dataref: AirbusFBW/IRSwitchArray[0]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/IRLights[0]
+      translate_secondary_dataref: translate_dref_value_bool,3
+
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: IR 2
+      state_dataref: AirbusFBW/IRSwitchArray[1]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/IRLights[1]
+      translate_secondary_dataref: translate_dref_value_bool,3
+
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: IR 3
+      state_dataref: AirbusFBW/IRSwitchArray[2]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/IRLights[2]
+      translate_secondary_dataref: translate_dref_value_bool,3
+
+    - key_id: 4
+      key_type: illuminated_button
+      key_options:
+        label: ""
+        text: ""
+        secondary_text: BAT
+      secondary_dataref: AirbusFBW/ADIRUOnBat
+      secondary_dataref_is_fault: true
+
+    - key_id: 5
+      key_type: rotary_control
+      key_options:
+        label: ADR 1
+        options:
+          - Off
+          - Nav
+          - Att
+      state_dataref: AirbusFBW/ADIRUSwitchArray[0]
+      translate_press: translate_press_iterate,3
+
+    - key_id: 7
+      key_type: rotary_control
+      key_options:
+        label: ADR 2
+        options:
+          - Off
+          - Nav
+          - Att
+      state_dataref: AirbusFBW/ADIRUSwitchArray[1]
+      translate_press: translate_press_iterate,3
+
+    - key_id: 6
+      key_type: rotary_control
+      key_options:
+        label: ADR 3
+        options:
+          - Off
+          - Nav
+          - Att
+      state_dataref: AirbusFBW/ADIRUSwitchArray[2]
+      translate_press: translate_press_iterate,3
+
+    - key_id: 10
+      key_type: illuminated_button
+      key_options:
+        label: ""
+      state_dataref: AirbusFBW/ADRSwitchArray[0]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/ADRLights[0]
+      translate_secondary_dataref: translate_dref_value_bool,3
+
+    - key_id: 12
+      key_type: illuminated_button
+      key_options:
+        label: ""
+      state_dataref: AirbusFBW/ADRSwitchArray[1]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/ADRLights[1]
+      translate_secondary_dataref: translate_dref_value_bool,3
+
+    - key_id: 11
+      key_type: illuminated_button
+      key_options:
+        label: ""
+      state_dataref: AirbusFBW/ADRSwitchArray[2]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/ADRLights[2]
+      translate_secondary_dataref: translate_dref_value_bool,3
