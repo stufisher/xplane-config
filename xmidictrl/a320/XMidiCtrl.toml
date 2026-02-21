@@ -57,6 +57,7 @@ mapping_in = [
   { ch = 11, cc = 18, type = "drf", dataref = "AirbusFBW/XPDRPower", value_on = "4", value_off = "0" },
   { ch = 11, cc = 18, type = "drf", dataref = "AirbusFBW/XPDRTCASMode", value_on = "1", value_off = "0" },
   { ch = 11, cc = 19, type = "cmd", command = "toliss_airbus/fd1_push" },
+  { ch = 11, cc = 19, type = "cmd", command = "toliss_airbus/fd2_push" },
   { ch = 11, cc = 20, type = "cmd", command = "toliss_airbus/dispcommands/CaptLSButtonPush" },
   { ch = 11, cc = 21, type = "cmd", command = "AirbusFBW/ATHRbutton" },
   { ch = 11, cc = 22, type = "cmd", command = "AirbusFBW/APPRbutton" },

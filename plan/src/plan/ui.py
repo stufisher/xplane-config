@@ -105,6 +105,7 @@ class UI:
         self._udp = UDP(self._apt)
         self._background_running = True
         self._map_markers = []
+        self._log_handler = None
 
     async def main(self):
         await self._plan._init()
@@ -305,9 +306,9 @@ class UI:
             self._map.on("map-click", self.on_map_click)
             self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
-            handler = LogElementHandler(self._log)
-            logging.getLogger().addHandler(handler)
-            ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
+            self._log_handler = LogElementHandler(self._log)
+            logging.getLogger().addHandler(self._log_handler)
+            # ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
 
     def update_plans(self):
         opts = {}
@@ -430,6 +431,8 @@ class UI:
             await self._plan._rest.write_scratchpad(sp)
 
     async def shutdown(self):
+        if self._log_handler:
+            logger.removeHandler(self._log_handler)
         await self._plan.shutdown()
 
 

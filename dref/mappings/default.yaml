@@ -362,6 +362,7 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/NoseGearInd
+      translate_dataref: translate_dref_value_bool,2
       secondary_dataref:
         - AirbusFBW/NoseGearInd
         - AirbusFBW/GearLever
@@ -380,6 +381,7 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/LeftGearInd
+      translate_dataref: translate_dref_value_bool,2
       secondary_dataref:
         - AirbusFBW/LeftGearInd
         - AirbusFBW/GearLever
@@ -398,6 +400,7 @@
         secondary_text: UNLK
         secondary_color: red
       state_dataref: AirbusFBW/RightGearInd
+      translate_dataref: translate_dref_value_bool,2
       secondary_dataref:
         - AirbusFBW/RightGearInd
         - AirbusFBW/GearLever
@@ -896,3 +899,55 @@
         label: Crew Ox
       state_dataref: AirbusFBW/CrewOxySwitch
       translate_dataref: translate_dref_value_bool,0
+
+- deck_id: 8
+  name: GPWS
+  icon: "\ue3f7"
+  keys:
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: WARN
+        text: ""
+        secondary_text: PULL
+      state_dataref: AirbusFBW/GPWSLeftSwitchAnim
+      # translate_dataref: translate_dref_value_bool,0
+      secondary_dataref_is_fault: true
+      command_press_toggle: AirbusFBW/GPWSMute
+
+    - key_id: 0
+      key_type: illuminated_button
+      key_options:
+        label: TERR
+      state_dataref: AirbusFBW/GPWSSwitchArray[4]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA34_Raw[27]
+
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: SYS
+      state_dataref: AirbusFBW/GPWSSwitchArray[0]
+      translate_dataref: translate_dref_value_bool,0
+      secondary_dataref: AirbusFBW/OHPLightsATA34_Raw[14]
+
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: G/S MODE
+      state_dataref: AirbusFBW/GPWSSwitchArray[1]
+      translate_dataref: translate_dref_value_bool,0
+
+    - key_id: 3
+      key_type: illuminated_button
+      key_options:
+        label: FLAP MODE
+      state_dataref: AirbusFBW/GPWSSwitchArray[2]
+      translate_dataref: translate_dref_value_bool,0
+
+    - key_id: 4
+      key_type: illuminated_button
+      key_options:
+        label: LDG FLAP 3
+        text: ON
+      state_dataref: AirbusFBW/GPWSSwitchArray[3]

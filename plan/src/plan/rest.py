@@ -144,7 +144,7 @@ class REST:
             try:
                 return type_dict[identifier]
             except Exception:
-                logger.warning(f"Could not resolve {type} {identifier} after retry")
+                logger.warning(f"Could not resolve {item_type} {identifier} after retry")
                 return
 
     async def get_dataref(self, dataref: str):

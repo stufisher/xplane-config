@@ -235,6 +235,11 @@ if __name__ == "__main__":
             # "AirbusFBW/APUStarter",
         ]
 
+        # OHP Arrays
+        # for i in [21, 30, 31, 34, 70, 24, 25, 26, 27, 28, 29, 32, 35, 49]:
+        #     for j in range(40):
+        #         drefs.append(f"AirbusFBW/OHPLightsATA{i}_Raw[{j}]")
+
         udp = UDP(drefs, on_dref_changed)
 
         while 1:
