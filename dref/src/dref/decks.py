@@ -177,9 +177,9 @@ class Decks:
 
     def on_drefs_changed(self, drefs: dict[str, any]):
         self._fcu.on_drefs_changed(drefs)
+        self.update_faults()
         if self._is_home:
             return
-        self.update_faults()
         for dref, value in drefs.items():
             keys = self.key_for_dref_in_current_deck(dref)
             if keys:

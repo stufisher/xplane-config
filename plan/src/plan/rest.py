@@ -187,7 +187,7 @@ class REST:
         else:
             raise RuntimeError(f"{resp.status_code}: {resp.json()}")
 
-    async def execute_command(self, command: str):
+    async def execute_command(self, command: str, duration: int = 0):
         command_id = await self._resolve(command, item_type="command")
         if not command_id:
             return
@@ -196,7 +196,7 @@ class REST:
             resp = await self._request(
                 "post",
                 f"{self._base_url}/command/{command_id}/activate",
-                json={"duration": 0},
+                json={"duration": duration},
             )
         except Exception:
             self._xplane_running = False

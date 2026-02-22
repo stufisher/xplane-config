@@ -187,6 +187,17 @@
       translate_dataref: translate_dref_value_bool,0
       secondary_dataref: AirbusFBW/OHPLightsATA28_Raw[7]
 
+    - key_id: 4
+      key_type: rotary_control
+      key_options:
+        label: X Bleed
+        options:
+          - Shut
+          - Auto
+          - Start
+      state_dataref: AirbusFBW/XBleedSwitch
+      translate_press: translate_press_iterate,3
+
     - key_id: 5
       key_type: illuminated_button
       key_options:
@@ -907,18 +918,19 @@
     - key_id: 5
       key_type: illuminated_button
       key_options:
-        label: WARN
-        text: ""
+        label: Warn
+        text: GPWS
+        color: orange
         secondary_text: PULL
-      state_dataref: AirbusFBW/GPWSLeftSwitchAnim
-      # translate_dataref: translate_dref_value_bool,0
+      state_dataref: AirbusFBW/OHPLightsATA34_Raw[22]
+      secondary_dataref: AirbusFBW/OHPLightsATA34_Raw[23]
       secondary_dataref_is_fault: true
       command_press_toggle: AirbusFBW/GPWSMute
 
     - key_id: 0
       key_type: illuminated_button
       key_options:
-        label: TERR
+        label: Terr
       state_dataref: AirbusFBW/GPWSSwitchArray[4]
       translate_dataref: translate_dref_value_bool,0
       secondary_dataref: AirbusFBW/OHPLightsATA34_Raw[27]
@@ -926,7 +938,7 @@
     - key_id: 1
       key_type: illuminated_button
       key_options:
-        label: SYS
+        label: Sys
       state_dataref: AirbusFBW/GPWSSwitchArray[0]
       translate_dataref: translate_dref_value_bool,0
       secondary_dataref: AirbusFBW/OHPLightsATA34_Raw[14]
@@ -934,20 +946,136 @@
     - key_id: 2
       key_type: illuminated_button
       key_options:
-        label: G/S MODE
+        label: G/S Mode
       state_dataref: AirbusFBW/GPWSSwitchArray[1]
       translate_dataref: translate_dref_value_bool,0
 
     - key_id: 3
       key_type: illuminated_button
       key_options:
-        label: FLAP MODE
+        label: Flap Mode
       state_dataref: AirbusFBW/GPWSSwitchArray[2]
       translate_dataref: translate_dref_value_bool,0
 
     - key_id: 4
       key_type: illuminated_button
       key_options:
-        label: LDG FLAP 3
+        label: LDG Flap 3
         text: ON
       state_dataref: AirbusFBW/GPWSSwitchArray[3]
+
+- deck_id: 9
+  name: Fire
+  icon: "\uef55"
+  keys:
+    - key_id: 1
+      key_type: illuminated_button
+      key_options:
+        label: Eng 1
+        text: FIRE
+        color: red
+        secondary_text: FIRE
+        secondary_color: red
+      state_dataref: AirbusFBW/ENGFireSwitchArray[0]
+      secondary_dataref: AirbusFBW/OHPLightsATA70_Raw[11]
+
+    - key_id: 2
+      key_type: illuminated_button
+      key_options:
+        label: APU
+        text: FIRE
+        color: red
+      state_dataref: AirbusFBW/FireExOHPArray[0]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[20]
+
+    - key_id: 3
+      key_type: illuminated_button
+      key_options:
+        label: Eng 2
+        text: FIRE
+        color: red
+      state_dataref: AirbusFBW/ENGFireSwitchArray[1]
+      secondary_dataref: AirbusFBW/OHPLightsATA70_Raw[13]
+
+    - key_id: 5
+      key_type: illuminated_button
+      key_options:
+        label: Agent 1
+        text: DISCH
+        color: orange
+        secondary_color: white
+        secondary_text: SQUIB
+      secondary_dataref_is_fault: true
+      state_dataref: AirbusFBW/OHPLightsATA26_Raw[1]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[2]
+      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent1Push
+
+    - key_id: 6
+      key_type: illuminated_button
+      key_options:
+        label: Agent 2
+        text: DISCH
+        color: orange
+        secondary_color: white
+        secondary_text: SQUIB
+      secondary_dataref_is_fault: true
+      state_dataref: AirbusFBW/OHPLightsATA26_Raw[3]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[4]
+      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent2Push
+
+    - key_id: 7
+      key_type: illuminated_button
+      key_options:
+        label: Agent
+        text: DISCH
+        color: orange
+        secondary_color: white
+        secondary_text: SQUIB
+      secondary_dataref_is_fault: true
+      state_dataref: AirbusFBW/OHPLightsATA26_Raw[21]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[22]
+      command_press_toggle: AirbusFBW/EngFireProt/APUAgentPush
+
+    - key_id: 8
+      key_type: illuminated_button
+      key_options:
+        label: Agent 1
+        text: DISCH
+        color: orange
+        secondary_color: white
+        secondary_text: SQUIB
+      secondary_dataref_is_fault: true
+      state_dataref: AirbusFBW/OHPLightsATA26_Raw[6]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[7]
+      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent1Push
+
+    - key_id: 9
+      key_type: illuminated_button
+      key_options:
+        label: Agent 2
+        text: DISCH
+        color: orange
+        secondary_color: white
+        secondary_text: SQUIB
+      secondary_dataref_is_fault: true
+      state_dataref: AirbusFBW/OHPLightsATA26_Raw[8]
+      secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[9]
+      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent2Push
+
+    - key_id: 11
+      key_type: push_button
+      key_options:
+        label: Test
+      command_press_toggle: "AirbusFBW/FireTestENG1"
+
+    - key_id: 12
+      key_type: push_button
+      key_options:
+        label: Test
+      command_press_toggle: "AirbusFBW/FireTestAPU"
+
+    - key_id: 13
+      key_type: push_button
+      key_options:
+        label: Test
+      command_press_toggle: "AirbusFBW/FireTestENG2"

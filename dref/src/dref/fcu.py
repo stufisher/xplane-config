@@ -75,7 +75,10 @@ class FCU:
                 if dref == "sim/cockpit/misc/barometer_setting":
                     value *= 33.864
                 msg += struct.pack("<if", dref_details[1], value)
-        self._esp_sock.sendto(msg, (self._esp_ip, self._esp_port))
+        try:
+            self._esp_sock.sendto(msg, (self._esp_ip, self._esp_port))
+        except Exception:
+            logger.error("Could not send data to esp")
 
     def refresh_all(self):
         logger.info("Refreshing all drefs")
