@@ -10,7 +10,8 @@ dependencies = [
   "httpx",
   "airports-py",
   "metar",
-  "nicegui"
+  "nicegui",
+  "websockets"
 ]
 
 [project.scripts]

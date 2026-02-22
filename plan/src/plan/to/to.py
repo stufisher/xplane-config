@@ -50,14 +50,21 @@ class TOCalculator:
         current_weather = self._weather.get_forecast(icao_code)
         runway = self._apt.get_runway_heading_and_length(icao_code, runway_name)
 
+        try:
+            wind_heading = current_weather.wind_dir.value()
+            wind_speed = current_weather.wind_speed.value()
+        except AttributeError:
+            wind_heading = 0
+            wind_speed = 0
+
         settings = TakeoffInstance(
             **{
-                "availRunway": runway.length,# * 3.28084,
+                "availRunway": runway.length,  # * 3.28084,
                 "isMeters": True,
                 "runwayHeading": runway.heading,
                 "runwayAltitude": runway.elevation,
-                "windHeading": current_weather.wind_dir.value(),
-                "windKts": current_weather.wind_speed.value(),
+                "windHeading": wind_heading,
+                "windKts": wind_speed,
                 "tow": weight,
                 "baro": current_weather.press.value(),
                 "oat": current_weather.temp.value(),
@@ -70,7 +77,9 @@ class TOCalculator:
         )
 
         flex = FlexMath.calculateFlexDist(settings, a20n)
-        asd = flex.togaRequiredRunway if flex.flex < flex.minFlex else flex.requiredRunway
+        asd = (
+            flex.togaRequiredRunway if flex.flex < flex.minFlex else flex.requiredRunway
+        )
         v_speeds = FlexMath.CalculateVSpeeds(
             settings.availRunway,
             settings.requiredRunway,
@@ -80,7 +89,7 @@ class TOCalculator:
             settings.isMeters,
             settings.isKG,
             a20n,
-            ASD=asd
+            ASD=asd,
         )
 
         return FlexVSpeeds(
