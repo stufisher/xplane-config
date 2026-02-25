@@ -154,8 +154,8 @@ class UI:
                     with Card():
                         with Row().classes("flex-nowrap"):
                             self._plan_select = ui.select(
-                                [], on_change=self.select_plan
-                            ).classes("flex-1")
+                                [], on_change=self.select_plan, with_input=True
+                            ).classes("flex-1 w-50")
                             with ui.button_group():
                                 plan_refresh_buttton = ui.button(
                                     icon="refresh",

@@ -4,6 +4,19 @@ import os
 from airports.airport_data import get_airport_by_icao
 
 DEFAULT_FMS_PATH = os.path.expanduser("~/X-Plane 12/Output/FMS Plans")
+DEFAULT_CIFP_PATH = os.path.expanduser("~/X-Plane 12/Resources/default dats/CIFP")
+
+
+class CIFP:
+    def __init__(self):
+        pass
+
+    def get_procedure(self, icao_code: str, procedure_name: str):
+        file_path = os.path.join(DEFAULT_CIFP_PATH, f"{icao_code}.dat")
+        with open(file_path) as cifp_file:
+            for line in cifp_file:
+                if procedure_name in line:
+                    pass
 
 
 def decdeg2dms(dd):
@@ -93,6 +106,7 @@ class FMS:
 
     @property
     def plans(self):
+        self._update_plans()
         return self._plans
 
     def get_plan(self, file_path):
