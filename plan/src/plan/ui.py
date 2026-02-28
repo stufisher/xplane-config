@@ -1,9 +1,11 @@
+import asyncio
 from contextlib import contextmanager
 import logging
 import os
+import time
 import webbrowser
 
-from nicegui import ui, app, events
+from nicegui import ui, app, events, Event
 from nicegui.element import Element
 
 from .plan import Plan
@@ -59,21 +61,18 @@ class LogElementHandler(logging.Handler):
 class Row(Element):
     def __init__(self) -> None:
         super().__init__(tag="div")
-        # self.style("display: flex; flex: 1; gap: var(--nicegui-default-gap);")
         self.classes("flex flex-1 gap-(--nicegui-default-gap)")
 
 
 class Col(Element):
     def __init__(self, gap=1) -> None:
         super().__init__(tag="div")
-        # self.style(f"flex-direction: column; display: flex; flex: 1; gap: {gap}rem")
         self.classes(f"flex-col flex flex-1 gap-{gap*3}")
 
 
 class Card(ui.card):
     def __init__(self, grow=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # self.style("gap: 0.5rem; align-items: normal;" + (" flex: 1; " if grow else ""))
         self.style("align-items: normal")
         self.classes("items-baseline gap-1" + (" flex-1" if grow else ""))
 
@@ -101,21 +100,24 @@ class ToggleButton(ui.button):
 class UI:
     def __init__(self):
         self._apt = APT()
-        self._plan = Plan(self._apt)
+        self._plan = Plan(self._apt, self.update_time, self.update_location)
         self._udp = UDP(self._apt)
         self._background_running = True
         self._map_markers = []
         self._log_handler = None
+        self._last_location_update_time = 0
+
+        self._ready = Event[str]()
+        self._ready.subscribe(self._init_cursor)
 
     async def main(self):
         await self._plan._init()
-        app.on_shutdown(self._plan.shutdown)
         app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
         ui.page_title("X-Plane")
 
-        # @ui.page("/")
-        # async def page():
-        if True:
+        @ui.page("/")
+        def page():
+        # if True:
             if 1:
                 dark = ui.dark_mode()
                 dark.enable()
@@ -198,13 +200,11 @@ class UI:
                                 self._anti_ice.tooltip("Anti Ice")
                     with Card(grow=True):
                         with Row():
-                            # with Col(gap=0):
                             self._time_label = (
-                                ui.label("12:34")
+                                ui.label("--:--:--")
                                 .style("font-family: DSEG7; font-size: 1.5rem")
                                 .classes("flex-1")
                             )
-                            ui.timer(1.0, self.update_time)
                             with ui.button_group():
                                 restore_popups_button = ui.button(
                                     icon="window",
@@ -275,10 +275,13 @@ class UI:
                                 self.des_weather = ui.markdown("6c hail 999mb")
 
                     with Card(grow=True):
-                        self._log = ui.log(max_lines=5).style("height: 80px")
+                        log = ui.log(max_lines=5).style("height: 80px")
+                        log_handler = LogElementHandler(log)
+                        logging.getLogger().addHandler(log_handler)
+                        ui.context.client.on_disconnect(lambda: logging.getLogger().removeHandler(log_handler))
 
                 with Card(grow=True):
-                    loc = await self._plan.location
+                    loc = self._plan.location
 
                     self._map = ui.leaflet(
                         center=(
@@ -302,13 +305,12 @@ class UI:
                     "rotationAngle": (loc.psi - 45) if loc.psi is not None else 0,
                 },
             )
-            await self._map.initialized()
-            self._map.on("map-click", self.on_map_click)
-            self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
+            self._ready.emit('ready')
 
-            self._log_handler = LogElementHandler(self._log)
-            logging.getLogger().addHandler(self._log_handler)
-            # ui.context.client.on_disconnect(lambda: logger.removeHandler(handler))
+    async def _init_cursor(self):
+        await self._map.initialized()
+        self._map.on("map-click", self.on_map_click)
+        self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
     def update_plans(self):
         opts = {}
@@ -320,7 +322,6 @@ class UI:
 
     async def _background_task(self):
         self.update_weather()
-        await self.update_location()
 
     async def init_mcdu(self, element):
         with disable(element):
@@ -340,14 +341,18 @@ class UI:
             anti_ice=self._anti_ice.value,
         )
 
-    async def update_location(self):
-        loc = await self._plan.location
+    def update_location(self):
+        now = time.time()
+        if now - self._last_location_update_time < 1:
+            return
+        loc = self._plan.location
         if loc.latitude is None:
             return
         if self._map_center.value:
             self._map.set_center((loc.latitude, loc.longitude))
         self._aircraft_marker.move(loc.latitude, loc.longitude)
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
+        self._last_location_update_time = now
 
     def update_weather(self):
         if self._plan.weather_dep:
@@ -367,8 +372,8 @@ class UI:
             self.des_time.set_text(f"{self._plan.current['ADES']} --:--")
             self.des_weather.content = "N/A"
 
-    async def update_time(self):
-        zulu_seconds = await self._plan.time
+    def update_time(self):
+        zulu_seconds = self._plan.time
         if zulu_seconds is None:
             self._time_label.set_text("--:--:--")
             return
@@ -390,8 +395,6 @@ class UI:
             except Exception:
                 logger.debug("Could not remove existing marker")
         self._map_markers = []
-
-        # await self._map.initialized()
 
         route = []
         for waypoint in self._plan.current["waypoints"]:
@@ -450,7 +453,10 @@ def main(reload=False):
         "kiosk", None, webbrowser.BackgroundBrowser(cmd), preferred=True
     )
     app.on_shutdown(ui_inst.shutdown)
-    ui.run(ui_inst.main, reload=reload, show=True)
+    try:
+        ui.run(ui_inst.main, reload=reload, show=True)
+    except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
+        logger.info("Shutdown finished")
 
 
 if __name__ in {"__main__", "__mp_main__"}:

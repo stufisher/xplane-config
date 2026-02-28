@@ -1,12 +1,21 @@
 import asyncio
 import base64
+import json
 import logging
+import os
+import re
+import signal
 import time
 import typing
 
 import httpx
+import websockets
+from websockets.asyncio.client import connect
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# os.environ["WEBSOCKETS_BACKOFF_FACTOR"] = "1"
 
 BUTTON_MAP = {
     "FPLN": "AirbusFBW/MCDU1Fpln",
@@ -54,17 +63,34 @@ CONTENT = [
 ]
 
 
+def get_dref_and_index(dataref: str):
+    dref_and_opts = dataref.split(",")
+    match = re.search(r"\[(\d+)\]", dref_and_opts[0])
+    if match:
+        dref_key = re.sub(r"\[\d+\]", "", dref_and_opts[0])
+        index = match.group(1)
+        return dref_key, index
+
+    return dataref, None
+
+
 class REST:
-    def __init__(self):
+    def __init__(self, on_drefs_changed: callable = None):
         self._client = httpx.AsyncClient(verify=False)
-        self._base_url = "http://localhost:8086/api/v2"
+        self._base_url = "http://localhost:8086/api/v3"
         self._commands = "/commands"
         self._datarefs = "/datarefs"
 
         self.__commands: dict[str, int] = {}
         self.__datarefs: dict[str, dict[str, any]] = {}
 
+        self._dataref_cache = {}
+        self._websocket_running = True
+        self._websocket = None
+        self._on_drefs_changed = on_drefs_changed
+
         self._xplane_running = False
+        self._xplane_ready = False
 
     async def _init(self):
         await self.resolve_rest()
@@ -97,8 +123,8 @@ class REST:
         except Exception:
             if self._xplane_running:
                 logger.warning("X-Plane is offline")
-                self.__commands = []
-                self.__datarefs = []
+                self.__commands = {}
+                self.__datarefs = {}
             self._xplane_running = False
 
     @property
@@ -128,11 +154,14 @@ class REST:
         self,
         identifier: str,
         item_type: typing.Literal["dataref", "command"] = "dataref",
+        should_raise=False,
     ):
         if not self._xplane_running:
             await self.resolve_rest()
             if not self._xplane_running:
                 logger.info("X-Plane REST API not available after retry")
+                if should_raise:
+                    raise KeyError("X-Plane REST API not available")
                 return
 
         type_dict = self.__datarefs if item_type == "dataref" else self.__commands
@@ -140,22 +169,32 @@ class REST:
             return type_dict[identifier]
         except KeyError:
             logger.info("X-Plane running but not all datrefs available yet")
+            if should_raise:
+                raise
             await self.resolve_rest()
             try:
                 return type_dict[identifier]
             except Exception:
-                logger.warning(f"Could not resolve {item_type} {identifier} after retry")
+                logger.warning(
+                    f"Could not resolve {item_type} {identifier} after retry"
+                )
                 return
 
     async def get_dataref(self, dataref: str):
-        dref = await self._resolve(dataref)
+        dref, index = get_dref_and_index(dataref)
+        dref = await self._resolve(dref)
         if not dref:
             return
+
+        extra_params = {}
+        if index is not None:
+            extra_params["index"] = index
 
         try:
             resp = await self._request(
                 "get",
                 f"{self._base_url}{self._datarefs}/{dref['id']}/value",
+                params=extra_params,
             )
         except Exception:
             self._xplane_running = False
@@ -167,9 +206,14 @@ class REST:
             return result
 
     async def set_dataref(self, dataref: str, value: any):
-        dref = await self._resolve(dataref)
+        dref, index = get_dref_and_index(dataref)
+        dref = await self._resolve(dref)
         if not dref:
             return
+
+        extra_params = {}
+        if index is not None:
+            extra_params["index"] = index
 
         if isinstance(value, str):
             value = base64.b64encode(value)
@@ -178,6 +222,7 @@ class REST:
                 "patch",
                 f"{self._base_url}{self._datarefs}/{dref['id']}/value",
                 json={"data": value},
+                params=extra_params,
             )
         except Exception:
             self._xplane_running = False
@@ -204,6 +249,116 @@ class REST:
         if resp.status_code == 200:
             return True
         return False
+
+    def set_subscribed_drefs(self, drefs: list[str]):
+        drefs.sort()
+        self._dref_cache = {key: None for key in drefs}
+
+    def _get_dref_by_id_and_index(self, id: int, index: int = 0):
+        dataref = None
+        for dref, dref_details in self.__datarefs.items():
+            if dref_details["id"] == id:
+                dataref = dref
+
+        if not dataref:
+            logger.warning(f"No dref for id: {id} index: {index}")
+            return
+        matched_drefs = []
+        for dref in self._dref_cache.keys():
+            if dataref in dref:
+                matched_drefs.append(dref)
+        return matched_drefs[index]
+
+    async def _subscribe(self):
+        dref_by_root = {}
+        for dref in self._dref_cache.keys():
+            dref_and_opts = dref.split(",")
+            match = re.search(r"\[(\d+)\]", dref_and_opts[0])
+            if match:
+                dref_key = re.sub(r"\[\d+\]", "", dref_and_opts[0])
+                if dref_key not in dref_by_root:
+                    dref_by_root[dref_key] = []
+                dref_by_root[dref_key].append(int(match.group(1)))
+            else:
+                dref_by_root[dref_and_opts[0]] = []
+
+        datarefs = []
+        for dref, indexes in dref_by_root.items():
+            resolved = await self._resolve(dref, should_raise=True)
+            request = {"id": resolved["id"]}
+            if indexes:
+                request["index"] = indexes
+            datarefs.append(request)
+
+        message = json.dumps(
+            {
+                "req_id": 1234,
+                "type": "dataref_subscribe_values",
+                "params": {"datarefs": datarefs},
+            }
+        )
+        await self._websocket.send(message)
+        self._xplane_ready = True
+
+    def _update_dref_cache(self, dref_key: str, value: int):
+        dref_opts = dref_key.split(",")
+        if len(dref_opts) > 1:
+            value = round(value, int(dref_opts[1]))
+
+        current_value = self._dref_cache[dref_key]
+        changed = {}
+        if current_value != value:
+            self._dref_cache[dref_key] = value
+            changed[dref_key] = value
+            # print(dref_key, value)
+
+        if changed:
+            if self._on_drefs_changed:
+                self._on_drefs_changed(changed)
+
+    def _parse_socket_response(self, data: dict[str, any]):
+        if data["type"] == "dataref_update_values":
+            for id, values in data["data"].items():
+                if isinstance(values, list):
+                    for idx, value in enumerate(values):
+                        dref_key = self._get_dref_by_id_and_index(int(id), idx)
+                        self._update_dref_cache(dref_key, value)
+
+                else:
+                    dref_key = self._get_dref_by_id_and_index(int(id))
+                    self._update_dref_cache(dref_key, values)
+
+    async def socket_client(self):
+        url = self._base_url.replace("http://", "ws://")
+        logger.info("Starting socket client")
+        async for websocket in connect(url):
+            try:
+                logger.info("Websocket connected")
+                self._websocket = websocket
+                while not self._xplane_ready:
+                    try:
+                        await self.resolve_rest()
+                        await self._subscribe()
+                    except KeyError:
+                        await asyncio.sleep(5)
+                        logger.info("Waiting for subscribe retry")
+
+                while self._websocket_running:
+                    message = await websocket.recv()
+                    self._parse_socket_response(json.loads(message))
+                    await asyncio.sleep(0)
+            except websockets.exceptions.ConnectionClosed:
+                logger.warning("Reconnecting to socket")
+                self.__datarefs = {}
+                self.__commands = {}
+                self._xplane_running = False
+                self._xplane_ready = False
+                continue
+
+    def get_dref_value(self, dref: str):
+        if isinstance(dref, list):
+            return [self._dref_cache.get(d) for d in dref]
+        return self._dref_cache.get(dref)
 
     async def clear_scratchpad(self):
         current = await self.get_dataref("AirbusFBW/MCDU1spw")
@@ -283,7 +438,11 @@ class REST:
 
 
 if __name__ == "__main__":
-    rest = REST()
+
+    def on_drefs_changed(drefs):
+        print("drefs", drefs)
+
+    rest = REST(on_drefs_changed=on_drefs_changed)
     # rest.clear_scratchpad()
     # rest.write_scratchpad("LOWS/LSGG")
     # rest.press_button("1R")
@@ -291,6 +450,15 @@ if __name__ == "__main__":
 
     async def moo():
         await rest._init()
+        rest.set_subscribed_drefs(
+            [
+                "sim/cockpit/autopilot/heading_mag",
+                "AirbusFBW/BrakeTemperatureArray[1],0",
+                "AirbusFBW/BrakeTemperatureArray[0],0",
+                "sim/time/zulu_time_sec,0",
+            ]
+        )
+        loop.create_task(rest.socket_client())
         # value = await rest.get_dataref("sim/time/zulu_time_sec")
         # print(value)
         # await rest.set_dataref("toliss_airbus/performance/VR", 145)
@@ -300,5 +468,7 @@ if __name__ == "__main__":
         # value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z_mac")
         value = await rest.get_dataref("AirbusFBW/MCDU1spw")
         print(value, value is None)
+        while 1:
+            await asyncio.sleep(1)
 
     loop.run_until_complete(moo())

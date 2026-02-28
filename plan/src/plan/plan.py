@@ -2,6 +2,8 @@ import asyncio
 from dataclasses import dataclass
 import logging
 
+from nicegui import background_tasks
+
 from .apt import APT
 from .fms import FMS
 from .rest import REST
@@ -22,15 +24,41 @@ class Location:
 
 
 class Plan:
-    def __init__(self, apt: APT):
+    def __init__(
+        self, apt: APT, update_time: callable = None, update_location: callable = None
+    ):
         self._fms = FMS()
-        self._rest = REST()
+        self._rest = REST(on_drefs_changed=self.on_drefs_changed)
         self._weather = Weather()
         self._plan = None
         self._to = TOCalculator(self._rest, apt, self._weather)
 
+        self._time_dref = "sim/time/zulu_time_sec,0"
+        self._location_drefs = [
+            "sim/flightmodel/position/latitude,3",
+            "sim/flightmodel/position/longitude,3",
+            "sim/flightmodel/position/elevation,1",
+            "sim/flightmodel/position/theta,1",
+            "sim/flightmodel/position/phi,1",
+            "sim/flightmodel/position/psi,1",
+        ]
+        self._update_time = update_time
+        self._update_location = update_location
+
+    def on_drefs_changed(self, drefs: dict[str, any]):
+        for dref in drefs:
+            if dref == self._time_dref:
+                if self._update_time:
+                    self._update_time()
+
+            if dref in self._location_drefs:
+                if self._update_location:
+                    self._update_location()
+
     async def _init(self):
         await self._rest._init()
+        self._rest.set_subscribed_drefs(self._location_drefs + [self._time_dref])
+        background_tasks.create(self._rest.socket_client())
 
     def load_plan(self, file_path: str):
         self._plan = self._fms.get_plan(file_path)
@@ -208,27 +236,27 @@ class Plan:
         await self._rest.press_button("FPLN")
 
     @property
-    async def time(self):
-        seconds = await self._rest.get_dataref("sim/time/zulu_time_sec")
+    def time(self):
+        seconds = self._rest.get_dref_value("sim/time/zulu_time_sec,0")
         return seconds
 
     @property
-    async def location(self):
-        latitude = await self._rest.get_dataref("sim/flightmodel/position/latitude")
-        longitude = await self._rest.get_dataref("sim/flightmodel/position/longitude")
-        elevation = await self._rest.get_dataref("sim/flightmodel/position/elevation")
+    def location(self):
+        latitude = self._rest.get_dref_value("sim/flightmodel/position/latitude,3")
+        longitude = self._rest.get_dref_value("sim/flightmodel/position/longitude,3")
+        elevation = self._rest.get_dref_value("sim/flightmodel/position/elevation,1")
 
-        theta = await self._rest.get_dataref("sim/flightmodel/position/theta")
-        phi = await self._rest.get_dataref("sim/flightmodel/position/phi")
-        psi = await self._rest.get_dataref("sim/flightmodel/position/psi")
+        theta = self._rest.get_dref_value("sim/flightmodel/position/theta,1")
+        phi = self._rest.get_dref_value("sim/flightmodel/position/phi,1")
+        psi = self._rest.get_dref_value("sim/flightmodel/position/psi,1")
 
         return Location(
             latitude=latitude,
             longitude=longitude,
             elevation=elevation,
-            theta=theta,
-            phi=phi,
-            psi=psi,
+            theta=theta or 0,
+            phi=phi or 0,
+            psi=psi or 0,
         )
 
     async def shutdown(self):
