@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 FCU_DREFS = [
     ["AirbusFBW/SPDmanaged", 1],
-    ["sim/cockpit2/autopilot/airspeed_dial_kts", 2],
+    ["sim/cockpit2/autopilot/airspeed_dial_kts,0", 2],
     ["AirbusFBW/HDGmanaged", 3],
-    ["sim/cockpit/autopilot/heading_mag", 4],
+    ["sim/cockpit/autopilot/heading_mag,0", 4],
     ["AirbusFBW/ALTmanaged", 5],
     ["AirbusFBW/VSdashed", 6],
     ["sim/cockpit2/autopilot/altitude_dial_ft", 7],
@@ -21,7 +21,7 @@ FCU_DREFS = [
     ["sim/cockpit/radios/com1_freq_hz", 9],
     ["sim/cockpit/radios/com1_stdby_freq_hz", 10],
     ["sim/cockpit/misc/barometer_setting", 11],
-    ["sim/flightmodel/controls/parkbrake", 12],
+    ["sim/flightmodel/controls/parkbrake,0", 12],
     ["sim/aircraft/parts/acf_gear_deploy[0]", 13],
     ["sim/cockpit2/autopilot/TOGA_status", 14],
 ]

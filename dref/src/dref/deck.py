@@ -22,7 +22,7 @@ class Deck:
             deck.open()
             deck.reset()
             deck.set_brightness(30)
-            deck.set_key_callback(self._on_key_change_callback)
+            deck.set_key_callback_async(self._on_key_change_callback)
             print(
                 "Opened '{}' device (serial number: '{}', fw: '{}')".format(
                     deck.deck_type(),
@@ -48,10 +48,10 @@ class Deck:
     def key_change_callback(self, value):
         self._key_change_callback = value
 
-    def _on_key_change_callback(self, deck, key: int, state: str):
+    async def _on_key_change_callback(self, deck, key: int, state: str):
         print(f"Deck {deck.id()} Key {key} = {state}")
         if self._key_change_callback is not None:
-            self._key_change_callback(key, state)
+            await self._key_change_callback(key, state)
 
     def update_key(self, key: int, image: Image):
         deck_image = PILHelper.to_native_key_format(self._deck, image)

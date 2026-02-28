@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from ruamel import yaml
 import os
@@ -7,7 +8,8 @@ from typing import Callable
 from .drawing import KEY_TYPES, create_image
 from .deck import Deck
 from .fcu import FCU
-from .udp import UDP
+
+from plan.rest import REST
 
 
 def translate_press(value: int):
@@ -92,6 +94,8 @@ def translate_dref_value_bool(compare_value: str, comparator="equal"):
 def translate_dref_gear_lever():
     def translate_dref_gear_lever(values: int):
         gear, lever = values
+        if gear is None or lever is None:
+            return False
 
         if lever == 1 and gear < 2:
             return True
@@ -154,9 +158,8 @@ class Decks:
         self._deck = Deck()
         self._deck.key_change_callback = self._key_change_callback
         self._fcu = FCU()
-        self._udp = UDP(
-            self.get_all_drefs() + self._fcu.get_drefs(), self.on_drefs_changed
-        )
+        self._udp = REST(self.on_drefs_changed)
+        self._udp.set_subscribed_drefs(self.get_all_drefs() + self._fcu.get_drefs())
         self._fcu.udp = self._udp
         self._current_deck = 0
         self._is_home = True
@@ -204,7 +207,7 @@ class Decks:
 
         return list(set(drefs))
 
-    def _key_change_callback(self, key, state):
+    async def _key_change_callback(self, key, state):
         if not state:
             return
         if self._is_home:
@@ -225,7 +228,15 @@ class Decks:
                     if deck_key.static:
                         return
                     if deck_key.command_press_toggle:
-                            self._udp.execute_command(deck_key.command_press_toggle)
+                        command_and_duration = deck_key.command_press_toggle.split(",")
+                        duration = int(
+                            command_and_duration[1]
+                            if len(command_and_duration) > 1
+                            else 0
+                        )
+                        await self._udp.execute_command(
+                            command_and_duration[0], duration
+                        )
                     elif deck_key.state_dataref:
                         dref_value = self._udp.get_dref_value(deck_key.state_dataref)
                         if (
@@ -238,11 +249,15 @@ class Decks:
                                 translators=COMMAND_TRANSLATORS,
                             )
 
-                            def up():
-                                self._udp.execute_command(deck_key.command_press_up)
+                            async def up():
+                                await self._udp.execute_command(
+                                    deck_key.command_press_up
+                                )
 
-                            def down():
-                                self._udp.execute_command(deck_key.command_press_down)
+                            async def down():
+                                await self._udp.execute_command(
+                                    deck_key.command_press_down
+                                )
 
                             translator(dref_value, up, down)
                         else:
@@ -251,7 +266,7 @@ class Decks:
                                 if deck_key.translate_press
                                 else translate_press
                             )
-                            self._udp.set_dref(
+                            await self._udp.set_dataref(
                                 deck_key.state_dataref, translator(dref_value)
                             )
 
@@ -360,19 +375,26 @@ class Decks:
             image = create_image()
             self._deck.update_key(i, image)
 
-    def close(self):
-        self._udp.close()
+    async def close(self):
+        await self._udp.close()
         self._fcu.close()
         self._deck.close()
 
 
 def run():
     decks = Decks()
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        decks.close()
+    loop = asyncio.get_event_loop()
+
+    async def local_run():
+        await decks._udp._init()
+        loop.create_task(decks._udp.socket_client())
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            await decks.close()
+
+    loop.run_until_complete(local_run())
 
 
 if __name__ == "__main__":

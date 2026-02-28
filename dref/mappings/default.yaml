@@ -48,7 +48,7 @@
         secondary_text: AVAIL
         secondary_color: green
       state_dataref: AirbusFBW/ENG1MasterSwitch
-      secondary_dataref: AirbusFBW/ENGN2Speed[0]
+      secondary_dataref: AirbusFBW/ENGN2Speed[0],1
       translate_secondary_dataref: translate_dref_value_bool,60,greater
 
     - key_id: 12
@@ -70,7 +70,7 @@
         secondary_text: AVAIL
         secondary_color: green
       state_dataref: AirbusFBW/ENG2MasterSwitch
-      secondary_dataref: AirbusFBW/ENGN2Speed[1]
+      secondary_dataref: AirbusFBW/ENGN2Speed[1],1
       translate_secondary_dataref: translate_dref_value_bool,60,greater
 
     - key_id: 4
@@ -538,7 +538,7 @@
         label: Park Brk
         text: ON
         color: green
-      state_dataref: sim/flightmodel/controls/parkbrake
+      state_dataref: sim/flightmodel/controls/parkbrake,0
       command_press_toggle: toliss_airbus/park_brake_toggle
 
 - deck_id: 4
@@ -1008,7 +1008,7 @@
       secondary_dataref_is_fault: true
       state_dataref: AirbusFBW/OHPLightsATA26_Raw[1]
       secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[2]
-      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent1Push
+      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent1Push,1
 
     - key_id: 6
       key_type: illuminated_button
@@ -1021,7 +1021,7 @@
       secondary_dataref_is_fault: true
       state_dataref: AirbusFBW/OHPLightsATA26_Raw[3]
       secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[4]
-      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent2Push
+      command_press_toggle: AirbusFBW/EngFireProt/Eng1Agent2Push,1
 
     - key_id: 7
       key_type: illuminated_button
@@ -1034,7 +1034,7 @@
       secondary_dataref_is_fault: true
       state_dataref: AirbusFBW/OHPLightsATA26_Raw[21]
       secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[22]
-      command_press_toggle: AirbusFBW/EngFireProt/APUAgentPush
+      command_press_toggle: AirbusFBW/EngFireProt/APUAgentPush,1
 
     - key_id: 8
       key_type: illuminated_button
@@ -1047,7 +1047,7 @@
       secondary_dataref_is_fault: true
       state_dataref: AirbusFBW/OHPLightsATA26_Raw[6]
       secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[7]
-      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent1Push
+      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent1Push,1
 
     - key_id: 9
       key_type: illuminated_button
@@ -1060,22 +1060,22 @@
       secondary_dataref_is_fault: true
       state_dataref: AirbusFBW/OHPLightsATA26_Raw[8]
       secondary_dataref: AirbusFBW/OHPLightsATA26_Raw[9]
-      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent2Push
+      command_press_toggle: AirbusFBW/EngFireProt/Eng2Agent2Push,1
 
     - key_id: 11
       key_type: push_button
       key_options:
         label: Test
-      command_press_toggle: "AirbusFBW/FireTestENG1"
+      command_press_toggle: AirbusFBW/FireTestENG1,2
 
     - key_id: 12
       key_type: push_button
       key_options:
         label: Test
-      command_press_toggle: "AirbusFBW/FireTestAPU"
+      command_press_toggle: AirbusFBW/FireTestAPU,2
 
     - key_id: 13
       key_type: push_button
       key_options:
         label: Test
-      command_press_toggle: "AirbusFBW/FireTestENG2"
+      command_press_toggle: AirbusFBW/FireTestENG2,2
