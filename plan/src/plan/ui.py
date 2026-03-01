@@ -5,7 +5,7 @@ import os
 import time
 import webbrowser
 
-from nicegui import ui, app, events, Event
+from nicegui import ui, app, events, Event, run
 from nicegui.element import Element
 
 from .plan import Plan
@@ -19,10 +19,12 @@ httpx_logger = logging.getLogger("httpx")
 httpx_logger.setLevel(logging.WARNING)
 
 
-SVG_DIAMOND = '<svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="80" height="80"><polygon points="0 40,40 80,80 40,40 0" style=" fill: purple; stroke:black;"/></svg>'
+SVG_DIAMOND = (
+    lambda color: f'<svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="80" height="80"><polygon points="0 40,40 80,80 40,40 0" style=" fill: {color}; stroke:black;"/></svg>'
+)
 SVG_PLANE = '<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="123" height="123"><path d="M16.63,105.75c0.01-4.03,2.3-7.97,6.03-12.38L1.09,79.73c-1.36-0.59-1.33-1.42-0.54-2.4l4.57-3.9 c0.83-0.51,1.71-0.73,2.66-0.47l26.62,4.5l22.18-24.02L4.8,18.41c-1.31-0.77-1.42-1.64-0.07-2.65l7.47-5.96l67.5,18.97L99.64,7.45 c6.69-5.79,13.19-8.38,18.18-7.15c2.75,0.68,3.72,1.5,4.57,4.08c1.65,5.06-0.91,11.86-6.96,18.86L94.11,43.18l18.97,67.5 l-5.96,7.47c-1.01,1.34-1.88,1.23-2.65-0.07L69.43,66.31L45.41,88.48l4.5,26.62c0.26,0.94,0.05,1.82-0.47,2.66l-3.9,4.57 c-0.97,0.79-1.81,0.82-2.4-0.54l-13.64-21.57c-4.43,3.74-8.37,6.03-12.42,6.03C16.71,106.24,16.63,106.11,16.63,105.75 L16.63,105.75z" style=" fill: orange; stroke:black;"/></svg>'
-ICON_DIAMOND = (
-    f"L.icon({{iconSize: [12, 12], iconUrl: 'data:image/svg+xml,{SVG_DIAMOND}'}})"
+ICON_DIAMOND = lambda color: (
+    f"L.icon({{iconSize: [12, 12], iconUrl: 'data:image/svg+xml,{SVG_DIAMOND(color)}'}})"
 )
 ICON_PLANE = (
     f"L.icon({{iconSize: [24, 24], iconUrl: 'data:image/svg+xml,{SVG_PLANE}'}})" ""
@@ -106,6 +108,9 @@ class UI:
         self._map_markers = []
         self._log_handler = None
         self._last_location_update_time = 0
+        self._map_center = None
+        self._time_label = None
+        self._plan_select_value = {}
 
         self._ready = Event[str]()
         self._ready.subscribe(self._init_cursor)
@@ -117,7 +122,6 @@ class UI:
 
         @ui.page("/")
         def page():
-        # if True:
             if 1:
                 dark = ui.dark_mode()
                 dark.enable()
@@ -155,15 +159,28 @@ class UI:
                 with Col():
                     with Card():
                         with Row().classes("flex-nowrap"):
-                            self._plan_select = ui.select(
-                                [], on_change=self.select_plan, with_input=True
-                            ).classes("flex-1 w-50")
+                            self._plan_select = (
+                                ui.select(
+                                    [],
+                                    on_change=lambda e: self.select_plan(e.value),
+                                    with_input=True,
+                                )
+                                .classes("flex-1 w-50")
+                                .bind_value(self._plan_select_value)
+                            )
+                            self._spinner = ui.spinner(size="lg")
+                            self._spinner.set_visibility(False)
                             with ui.button_group():
-                                plan_refresh_buttton = ui.button(
+                                plan_load_runway_button = ui.button(
+                                    icon="add_road",
+                                    on_click=self.load_runway_data,
+                                )
+                                plan_load_runway_button.tooltip("Load runway data")
+                                plan_refresh_button = ui.button(
                                     icon="refresh",
                                     on_click=lambda e: self.update_plans(),
                                 )
-                                plan_refresh_buttton.tooltip("Refresh plans")
+                                plan_refresh_button.tooltip("Refresh plans")
                         with Row().classes("flex-nowrap"):
                             self._flight_no = ui.input(
                                 "Flight No.", value="A123", placeholder="Flight No."
@@ -278,7 +295,9 @@ class UI:
                         log = ui.log(max_lines=5).style("height: 80px")
                         log_handler = LogElementHandler(log)
                         logging.getLogger().addHandler(log_handler)
-                        ui.context.client.on_disconnect(lambda: logging.getLogger().removeHandler(log_handler))
+                        ui.context.client.on_disconnect(
+                            lambda: logging.getLogger().removeHandler(log_handler)
+                        )
 
                 with Card(grow=True):
                     loc = self._plan.location
@@ -293,19 +312,21 @@ class UI:
                         ],
                     ).classes("flex-1")
 
+                    self._aircraft_marker = self._map.marker(
+                        latlng=(
+                            loc.latitude if loc.latitude else 0,
+                            loc.longitude if loc.longitude else 0,
+                        ),
+                        options={
+                            "rotationOrigin": "center center",
+                            "rotationAngle": (
+                                (loc.psi - 45) if loc.psi is not None else 0
+                            ),
+                        },
+                    )
             self.update_plans()
             ui.timer(10, lambda: self._background_task())
-            self._aircraft_marker = self._map.marker(
-                latlng=(
-                    loc.latitude if loc.latitude else 0,
-                    loc.longitude if loc.longitude else 0,
-                ),
-                options={
-                    "rotationOrigin": "center center",
-                    "rotationAngle": (loc.psi - 45) if loc.psi is not None else 0,
-                },
-            )
-            self._ready.emit('ready')
+            self._ready.emit("ready")
 
     async def _init_cursor(self):
         await self._map.initialized()
@@ -314,9 +335,9 @@ class UI:
 
     def update_plans(self):
         opts = {}
-        plans = sorted(self._plan.plans, key=lambda d: d["departure"])
+        plans = sorted(self._plan.plans, key=lambda d: d.departure)
         for plan in plans:
-            opts[plan["file_path"]] = plan["departure"] + " -> " + plan["destination"]
+            opts[plan.file_path] = plan.departure + " -> " + plan.destination
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
 
@@ -334,14 +355,18 @@ class UI:
             await self._plan.mcdu_fpln()
 
     async def update_mcdu_perf(self):
+        self._spinner.set_visibility(True)
         await self._plan.mcdu_perf(
             to_flaps=self._to_flaps.value,
             runway_condition=1 if self._runway_condition.value else 0,
             packs=self._packs.value,
             anti_ice=self._anti_ice.value,
         )
+        self._spinner.set_visibility(False)
 
     def update_location(self):
+        if not self._map_center:
+            return
         now = time.time()
         if now - self._last_location_update_time < 1:
             return
@@ -355,24 +380,28 @@ class UI:
         self._last_location_update_time = now
 
     def update_weather(self):
+        if not self._plan.current:
+            return
         if self._plan.weather_dep:
             self.dep_time.set_text(
-                f"{self._plan.current['ADEP']} {self._plan.weather_dep.time:%H:%M}"
+                f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
             self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')}, {self._plan.weather_dep.wind()}, {self._plan.weather_dep.visibility()} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
         else:
-            self.dep_time.set_text(f"{self._plan.current['ADEP']} --:--")
+            self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
         if self._plan.weather_des:
             self.des_time.set_text(
-                f"{self._plan.current['ADES']} {self._plan.weather_des.time:%H:%M}"
+                f"{self._plan.current.ADES} {self._plan.weather_des.time:%H:%M}"
             )
             self.des_weather.content = f"{self._plan.weather_des.temp.string('C')}, {self._plan.weather_des.wind()}, {self._plan.weather_des.visibility()} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
         else:
-            self.des_time.set_text(f"{self._plan.current['ADES']} --:--")
+            self.des_time.set_text(f"{self._plan.current.ADES} --:--")
             self.des_weather.content = "N/A"
 
     def update_time(self):
+        if not self._time_label:
+            return
         zulu_seconds = self._plan.time
         if zulu_seconds is None:
             self._time_label.set_text("--:--:--")
@@ -381,11 +410,16 @@ class UI:
         minutes, seconds = divmod(remain, 60)
         self._time_label.set_text(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
 
-    async def select_plan(self, change_event):
-        self._plan.load_plan(change_event.value)
+    async def load_runway_data(self):
+        await self.select_plan(self._plan_select_value["value"], True)
+
+    async def select_plan(self, value, load_runway: bool = False):
+        self._spinner.set_visibility(True)
+        await self._plan.load_plan(value, load_runway)
+        self._spinner.set_visibility(False)
         self.update_weather()
 
-        self._plan_detail.content = f"**DEPRW**: {self._plan.current.get('DEPRWY')} **SID**: {self._plan.current.get('SID')} **STAR**: {self._plan.current.get('STAR')} **APP**: {self._plan.current.get('APP')} **DESRW**: {self._plan.current.get('DESRWY')}"
+        self._plan_detail.content = f"**DEPRW**: {self._plan.current.DEPRWY} ({self._plan.current.DEPRWY_LENGTH or '-'}ft) **SID**: {self._plan.current.SID} **STAR**: {self._plan.current.STAR} **APP**: {self._plan.current.APP} **DESRW**: {self._plan.current.DESRWY} ({self._plan.current.DESRWY_LENGTH or '-'}ft)"
 
         self._cruise_alt.value = self._plan.cruise
 
@@ -397,11 +431,17 @@ class UI:
         self._map_markers = []
 
         route = []
-        for waypoint in self._plan.current["waypoints"]:
-            route.append(waypoint.name)
+        for waypoint in self._plan.current.all_waypoints:
             marker = self._map.marker(latlng=(waypoint.latitude, waypoint.longitude))
             self._map_markers.append(marker)
-            marker.run_method(":setIcon", ICON_DIAMOND)
+            marker.run_method(
+                ":setIcon",
+                ICON_DIAMOND(
+                    "cyan"
+                    if waypoint.type_id == 2
+                    else ("green" if waypoint.type_id == 1 else "purple")
+                ),
+            )
             marker.run_method(
                 "bindTooltip",
                 waypoint.name,
@@ -412,16 +452,19 @@ class UI:
                 },
             )
 
+        route = []
+        for waypoint in self._plan.current.waypoints:
+            route.append(waypoint.name)
         self._route.value = " ".join(route)
 
     def move_aircraft_to_runway(self):
-        runway = self._plan.current["DEPRWY"]
-        icao_code = self._plan.current["ADEP"]
+        runway = self._plan.current.DEPRWY
+        icao_code = self._plan.current.ADEP
         if runway and icao_code:
             self._udp.move_aircraft_to_runway(icao_code, runway)
 
     def move_aircraft_to_gate(self):
-        icao_code = self._plan.current["ADEP"]
+        icao_code = self._plan.current.ADEP
         if icao_code:
             self._udp.move_aircraft_to_gate(icao_code)
 
@@ -439,7 +482,7 @@ class UI:
         await self._plan.shutdown()
 
 
-def main(reload=False):
+def main(reload=False, show=True):
     ui_inst = UI()
     cmd = [
         "open",
@@ -454,10 +497,10 @@ def main(reload=False):
     )
     app.on_shutdown(ui_inst.shutdown)
     try:
-        ui.run(ui_inst.main, reload=reload, show=True)
+        ui.run(ui_inst.main, reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
         logger.info("Shutdown finished")
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    main(True)
+    main(True, False)

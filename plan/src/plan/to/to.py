@@ -4,6 +4,7 @@
 import asyncio
 from dataclasses import dataclass, asdict
 
+from nicegui import run as ng_run
 
 from ..rest import REST
 from ..apt import APT
@@ -15,6 +16,8 @@ from .airframe import a20n
 @dataclass
 class FlexVSpeeds(VSpeeds):
     flex: int | None
+    requiredRunway: int
+    availRunway: int
 
 
 class TOCalculator:
@@ -48,7 +51,9 @@ class TOCalculator:
     ):
         weight = await self._rest.get_dataref("sim/flightmodel/weight/m_total")
         current_weather = self._weather.get_forecast(icao_code)
-        runway = self._apt.get_runway_heading_and_length(icao_code, runway_name)
+        runway = await ng_run.cpu_bound(
+            self._apt.get_runway_heading_and_length, icao_code, runway_name
+        )
 
         try:
             wind_heading = current_weather.wind_dir.value()
@@ -93,7 +98,10 @@ class TOCalculator:
         )
 
         return FlexVSpeeds(
-            flex=flex.flex if flex.flex > flex.minFlex else None, **asdict(v_speeds)
+            flex=flex.flex if flex.flex > flex.minFlex else None,
+            availRunway=int(settings.availRunway * 3.28084),
+            requiredRunway=int(settings.requiredRunway * 3.28084),
+            **asdict(v_speeds),
         )
 
 

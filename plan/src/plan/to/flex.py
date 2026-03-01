@@ -650,7 +650,7 @@ class FlexMath:
     @staticmethod
     def v1Speed(a: float, r: float, vR: float, asd=1621):
         v1 = (asd / 2 - (a - r)) / 50
-        print("v1", v1, "vr", vR)
+        # print("v1", v1, "vr", vR)
         return vR - math.ceil(v1) if v1 > 0 else vR
 
     @staticmethod
@@ -668,7 +668,7 @@ class FlexMath:
         w = FlexMath.parseWeight(Weight, isKG) / 1000
         v2 = FlexMath.v2Speed(w, Flaps, RunwayAlt, airframe)
         vR = FlexMath.vRSpeed(v2)
-        print("V1 CALC", FlexMath.parseDist(availRunway, isMeters), requiredRunway, vR, ASD)
+        # print("V1 CALC", FlexMath.parseDist(availRunway, isMeters), requiredRunway, vR, ASD)
         v1 = FlexMath.v1Speed(
             FlexMath.parseDist(availRunway, isMeters), requiredRunway, vR, ASD
         )

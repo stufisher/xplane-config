@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import logging
 
-from nicegui import background_tasks
+from nicegui import background_tasks, run as ng_run
 
 from .apt import APT
 from .fms import FMS
@@ -27,7 +27,7 @@ class Plan:
     def __init__(
         self, apt: APT, update_time: callable = None, update_location: callable = None
     ):
-        self._fms = FMS()
+        self._fms = FMS(apt)
         self._rest = REST(on_drefs_changed=self.on_drefs_changed)
         self._weather = Weather()
         self._plan = None
@@ -60,8 +60,8 @@ class Plan:
         self._rest.set_subscribed_drefs(self._location_drefs + [self._time_dref])
         background_tasks.create(self._rest.socket_client())
 
-    def load_plan(self, file_path: str):
-        self._plan = self._fms.get_plan(file_path)
+    async def load_plan(self, file_path: str, load_runway=False):
+        self._plan = await ng_run.cpu_bound(self._fms.get_plan, file_path, load_runway)
 
     @property
     def current(self):
@@ -73,7 +73,7 @@ class Plan:
             return
 
         max_alt = 0
-        for waypoint in self._plan["waypoints"]:
+        for waypoint in self._plan.waypoints:
             wpt_alt = float(waypoint.altitude)
             if wpt_alt > max_alt:
                 max_alt = wpt_alt
@@ -88,18 +88,18 @@ class Plan:
     def weather_des(self):
         if not self._plan:
             return
-        return self._weather.get_forecast(self._plan["ADES"])
+        return self._weather.get_forecast(self._plan.ADES)
 
     @property
     def weather_dep(self):
         if not self._plan:
             return
-        return self._weather.get_forecast(self._plan["ADEP"])
+        return self._weather.get_forecast(self._plan.ADEP)
 
     async def mcdu_init(self, cost=10, flt_number="A123", cruise_alt=350):
         logger.info("MCDU: Init")
         await self._rest.press_button("INIT")
-        await self._rest.write_scratchpad(self._plan["ADEP"] + "/" + self._plan["ADES"])
+        await self._rest.write_scratchpad(self._plan.ADEP + "/" + self._plan.ADES)
         await self._rest.press_button("1R")
         await self._rest.press_button("6R")
 
@@ -127,7 +127,7 @@ class Plan:
         await self._rest.press_button("1L")
         await asyncio.sleep(0.2)
         await self._rest.press_button("1L")
-        dep_runway = self._plan["DEPRWY"].replace("RW", "")
+        dep_runway = self._plan.DEPRWY.replace("RW", "")
         logger.info(f"MCDU: Setting departure runway {dep_runway}")
         row_id = await self._rest.find_row_in_display(dep_runway)
         if row_id is not None:
@@ -135,7 +135,7 @@ class Plan:
         else:
             logger.warning(f"Could not set departure runway `{dep_runway}`")
 
-        sid = self._plan["SID"]
+        sid = self._plan.SID
         logger.info(f"MCDU: Setting departure SID {sid}")
         row_id = await self._rest.find_row_in_display(sid)
         if row_id is not None:
@@ -151,7 +151,7 @@ class Plan:
         await self._rest.press_button("1R")
 
         # Approach
-        app = self._plan["APP"]
+        app = self._plan.APP
         logger.info(f"MCDU: Setting arrival approach {app}")
         if app.startswith("L"):
             app = app.replace("L", "LOC")
@@ -178,7 +178,7 @@ class Plan:
                 logger.warning(f"Could not set departure APP `{app}`")
 
         # Star
-        star = self._plan.get("STAR")
+        star = self._plan.STAR
         if star:
             logger.info(f"MCDU: Setting arrival STAR {star}")
             row_id = await self._rest.find_row_in_display(star)
@@ -213,13 +213,16 @@ class Plan:
     ):
         logger.info("MCDU: Setting PERF")
         trim = await self._to.calc_trim()
-        dep_runway = self._plan["DEPRWY"].replace("RW", "")
+        dep_runway = self._plan.DEPRWY.replace("RW", "")
         flex_vspeeds = await self._to.calc_vspeeds_flex(
-            self._plan["ADEP"], dep_runway, to_flaps, runway_condition, packs, anti_ice
+            self._plan.ADEP, dep_runway, to_flaps, runway_condition, packs, anti_ice
         )
         log_type = logger.info if flex_vspeeds.flex else logger.warning
         log_type(
             f"TO Params: V1 {flex_vspeeds.v1} VR {flex_vspeeds.vr} V2 {flex_vspeeds.v2} Flex Temp: {flex_vspeeds.flex} Trim {trim}"
+        )
+        logger.info(
+            f"TO Params: Required runway {flex_vspeeds.requiredRunway}ft (available {flex_vspeeds.availRunway}ft)"
         )
         await self._rest.press_button("PERF")
         await self._rest.write_scratchpad(f"{to_flaps}/{trim}")
