@@ -51,9 +51,7 @@ class TOCalculator:
     ):
         weight = await self._rest.get_dataref("sim/flightmodel/weight/m_total")
         current_weather = self._weather.get_forecast(icao_code)
-        runway = await ng_run.cpu_bound(
-            self._apt.get_runway_heading_and_length, icao_code, runway_name
-        )
+        runway = await self._apt.get_runway_heading_and_length(icao_code, runway_name)
 
         try:
             wind_heading = current_weather.wind_dir.value()

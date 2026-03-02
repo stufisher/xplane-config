@@ -61,7 +61,7 @@ class Plan:
         background_tasks.create(self._rest.socket_client())
 
     async def load_plan(self, file_path: str, load_runway=False):
-        self._plan = await ng_run.cpu_bound(self._fms.get_plan, file_path, load_runway)
+        self._plan = await self._fms.get_plan(file_path, load_runway)
 
     @property
     def current(self):
@@ -221,9 +221,10 @@ class Plan:
         log_type(
             f"TO Params: V1 {flex_vspeeds.v1} VR {flex_vspeeds.vr} V2 {flex_vspeeds.v2} Flex Temp: {flex_vspeeds.flex} Trim {trim}"
         )
-        logger.info(
-            f"TO Params: Required runway {flex_vspeeds.requiredRunway}ft (available {flex_vspeeds.availRunway}ft)"
-        )
+        if not flex_vspeeds.flex:
+            logger.info(
+                f"TO Params: Required runway {flex_vspeeds.requiredRunway}ft (available {flex_vspeeds.availRunway}ft)"
+            )
         await self._rest.press_button("PERF")
         await self._rest.write_scratchpad(f"{to_flaps}/{trim}")
         await self._rest.press_button("3R")

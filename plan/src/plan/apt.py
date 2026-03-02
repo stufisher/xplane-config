@@ -3,6 +3,7 @@ import logging
 import math
 import os
 
+from nicegui import run
 
 logger = logging.getLogger(__name__)
 
@@ -57,77 +58,81 @@ def deg2rad(deg: float):
     return deg * math.pi / 180
 
 
+def parse_airport_data(icao_code: str):
+    runways = {}
+    gates = {}
+    rw_idx = 0
+    ramp_idx = 0
+    in_airport = False
+    with open(DEFAULT_APD_PATH) as apd_file:
+        for line in apd_file:
+            parts = line.strip().split()
+            if not parts:
+                continue
+            if parts[0] == "1":
+                if in_airport:
+                    in_airport = False
+                if parts[4] == icao_code:
+                    in_airport = True
+                    elevation = int(parts[1])
+
+            if line.startswith("100") and in_airport:
+                fields = line.strip().split()
+                header = fields[0:8]
+                rws = fields[8:]
+                rw_count = int(len(rws) / 9)
+                for rw_dir in range(rw_count):
+                    rw_fields = rws[rw_dir * 9 : rw_dir * 9 + 9]
+                    runways[rw_fields[0]] = Runway(
+                        name=rw_fields[0],
+                        rwy_idx=rw_idx,
+                        rwy_dir=rw_dir,
+                        lat=float(rw_fields[1]),
+                        lon=float(rw_fields[2]),
+                        elevation=elevation,
+                    )
+
+                rw_idx += 1
+
+            if line.startswith("1300") and in_airport:
+                gate_fields = line.strip().split()
+                gates[gate_fields[6]] = Gate(
+                    lat=gate_fields[1],
+                    lon=gate_fields[2],
+                    ramp_idx=ramp_idx,
+                    heading=gate_fields[3],
+                    location_type=gate_fields[4],
+                    aircraft_type=gate_fields[5],
+                    name=gate_fields[6],
+                    elevation=elevation,
+                )
+                ramp_idx += 1
+    return runways, gates
+
+
 class APT:
     def __init__(self):
         self._airport_runways: dict[str, dict[str, Runway]] = {}
         self._airport_ramps: dict[str, dict[str, Gate]] = {}
 
-    def _parse(self, icao_code: str):
-        runways = {}
-        gates = {}
-        rw_idx = 0
-        ramp_idx = 0
-        in_airport = False
-        with open(DEFAULT_APD_PATH) as apd_file:
-            for line in apd_file:
-                parts = line.strip().split()
-                if not parts:
-                    continue
-                if parts[0] == "1":
-                    if in_airport:
-                        in_airport = False
-                    if parts[4] == icao_code:
-                        in_airport = True
-                        elevation = int(parts[1])
+    async def _parse(self, icao_code: str):
+        runways, gates = await run.cpu_bound(parse_airport_data, icao_code)
+        self._airport_runways[icao_code] = runways
+        self._airport_ramps[icao_code] = gates
 
-                if line.startswith("100") and in_airport:
-                    fields = line.strip().split()
-                    header = fields[0:8]
-                    rws = fields[8:]
-                    rw_count = int(len(rws) / 9)
-                    for rw_dir in range(rw_count):
-                        rw_fields = rws[rw_dir * 9 : rw_dir * 9 + 9]
-                        runways[rw_fields[0]] = Runway(
-                            name=rw_fields[0],
-                            rwy_idx=rw_idx,
-                            rwy_dir=rw_dir,
-                            lat=float(rw_fields[1]),
-                            lon=float(rw_fields[2]),
-                            elevation=elevation,
-                        )
-
-                    rw_idx += 1
-
-                if line.startswith("1300") and in_airport:
-                    gate_fields = line.strip().split()
-                    gates[gate_fields[6]] = Gate(
-                        lat=gate_fields[1],
-                        lon=gate_fields[2],
-                        ramp_idx=ramp_idx,
-                        heading=gate_fields[3],
-                        location_type=gate_fields[4],
-                        aircraft_type=gate_fields[5],
-                        name=gate_fields[6],
-                        elevation=elevation,
-                    )
-                    ramp_idx += 1
-
-            self._airport_runways[icao_code] = runways
-            self._airport_ramps[icao_code] = gates
-
-    def get_runway_idx_dir(self, icao_code: str, name: str):
+    async def get_runway_idx_dir(self, icao_code: str, name: str):
         if icao_code not in self._airport_runways:
-            self._parse(icao_code)
+            await self._parse(icao_code)
         runways = self._airport_runways[icao_code]
         if "RW" in name:
             name = name.replace("RW", "")
         return runways[name]
 
-    def get_ramps(
+    async def get_ramps(
         self, icao_code: str, aircraft_type="jets", location_types=["gate", "tie_down"]
     ):
         if icao_code not in self._airport_ramps:
-            self._parse(icao_code)
+            await self._parse(icao_code)
 
         ramps = self._airport_ramps[icao_code]
         return {
@@ -137,8 +142,8 @@ class APT:
             and gate.location_type in location_types
         }
 
-    def get_runway_heading_and_length(self, icao_code: str, name: str):
-        runway = self.get_runway_idx_dir(icao_code, name)
+    async def get_runway_heading_and_length(self, icao_code: str, name: str):
+        runway = await self.get_runway_idx_dir(icao_code, name)
         runways = self._airport_runways[icao_code]
         opposite_runway = None
         for rw in runways.values():

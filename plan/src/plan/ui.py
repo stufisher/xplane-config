@@ -457,16 +457,16 @@ class UI:
             route.append(waypoint.name)
         self._route.value = " ".join(route)
 
-    def move_aircraft_to_runway(self):
+    async def move_aircraft_to_runway(self):
         runway = self._plan.current.DEPRWY
         icao_code = self._plan.current.ADEP
         if runway and icao_code:
-            self._udp.move_aircraft_to_runway(icao_code, runway)
+            await self._udp.move_aircraft_to_runway(icao_code, runway)
 
-    def move_aircraft_to_gate(self):
+    async def move_aircraft_to_gate(self):
         icao_code = self._plan.current.ADEP
         if icao_code:
-            self._udp.move_aircraft_to_gate(icao_code)
+            await self._udp.move_aircraft_to_gate(icao_code)
 
     async def restore_popups(self):
         await self._plan._rest.execute_command("toliss_airbus/reinstatePopups")

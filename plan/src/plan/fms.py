@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from airports.airport_data import get_airport_by_icao
+from nicegui import run
 
 from .apt import APT
 
@@ -64,22 +65,26 @@ class FMSPlan:
     star_proc: Optional[Procedure] = None
     app_proc: Optional[Procedure] = None
 
-    def load_procedures(self, cifp, apt: APT, load_runway: bool):
+    async def load_procedures(self, cifp, apt: APT, load_runway: bool):
         logger.info(f"Loading procedures for {self.ADEP} to {self.ADES}")
         if self.SID and self.sid_proc is None:
-            self.sid_proc = cifp.get_procedure(self.SID, self.ADEP, self.DEPRWY)
+            self.sid_proc = await cifp.get_procedure(self.SID, self.ADEP, self.DEPRWY)
         if self.STAR and self.star_proc is None:
-            self.star_proc = cifp.get_procedure(self.STAR, self.ADES, self.DESRWY)
+            self.star_proc = await cifp.get_procedure(self.STAR, self.ADES, self.DESRWY)
         if self.APP and self.app_proc is None:
-            self.app_proc = cifp.get_procedure(self.APP, self.ADES)
+            self.app_proc = await cifp.get_procedure(self.APP, self.ADES)
 
         if load_runway:
             logger.info("Loading runway data")
             if self.DEPRWY and self.DEPRWY_LENGTH is None:
-                hdg_len = apt.get_runway_heading_and_length(self.ADEP, self.DEPRWY)
+                hdg_len = await apt.get_runway_heading_and_length(
+                    self.ADEP, self.DEPRWY
+                )
                 self.DEPRWY_LENGTH = int(hdg_len.length * 3.28084)
             if self.DESRWY and self.DESRWY_LENGTH is None:
-                hdg_len = apt.get_runway_heading_and_length(self.ADES, self.DESRWY)
+                hdg_len = await apt.get_runway_heading_and_length(
+                    self.ADES, self.DESRWY
+                )
                 self.DESRWY_LENGTH = int(hdg_len.length * 3.28084)
         logger.info("Done loading")
 
@@ -91,120 +96,135 @@ class FMSPlan:
         return self.waypoints + sid_waypoints + star_waypoints + app_waypoints
 
 
+def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
+    waypoint = waypoint_and_type[0]
+    type_id = int(waypoint_and_type[1])
+    is_dme = int(waypoint_and_type[2])
+
+    found_waypoints = []
+    if not is_dme:
+        with open(DEFAULT_EARTH_FIX_PATH) as earth_fix_file:
+            for _ in range(3):
+                next(earth_fix_file)
+            for line in earth_fix_file:
+                cols = line.split()
+                if len(cols) < 5:
+                    continue
+                if cols[2] == waypoint:
+                    found_waypoints.append([cols[0], cols[1], cols[3]])
+
+    # Waypoint might be a VOR/DME
+    if not found_waypoints:
+        with open(DEFAULT_EARTH_NAV_PATH) as earth_nav_file:
+            for _ in range(3):
+                next(earth_nav_file)
+            for line in earth_nav_file:
+                cols = line.split()
+                if len(cols) < 10:
+                    continue
+                if cols[7] == waypoint:
+                    found_waypoints.append([cols[1], cols[2], cols[3]])
+
+    if not found_waypoints:
+        return
+
+    matched_waypoint = found_waypoints[0]
+    if len(found_waypoints) > 1:
+        for found_waypoint in found_waypoints:
+            if found_waypoint[2] != "ENRT" and found_waypoint[2] == icao_code:
+                matched_waypoint = found_waypoint
+
+    return Waypoint(
+        type_id=type_id,
+        name=waypoint,
+        latitude=float(matched_waypoint[0]),
+        longitude=float(matched_waypoint[1]),
+    )
+
+
+def parse_procedure(procedure_name: str, icao_code: str):
+    file_path = os.path.join(DEFAULT_CIFP_PATH, f"{icao_code}.dat")
+    procedure_waypoints = []
+    runway = None
+    runways = {}
+    found_procedure_type = None
+    in_procedure = False
+    with open(file_path) as cifp_file:
+        for line in cifp_file:
+            procedure_type, procedure_details_orig = line.split(":")
+            procedure_details = procedure_details_orig.split(",")
+            if procedure_type == "APPCH":
+                ignore_appch_a = procedure_details[1] == "A"
+            else:
+                ignore_appch_a = False
+            if procedure_details[2] == procedure_name and not ignore_appch_a:
+                in_procedure = True
+                found_procedure_type = procedure_type
+                runway = procedure_details[3]
+                if not procedure_details[4].isspace():
+                    is_toga = ",1"
+                    # if procedure_details[9] == "L":
+                    #     is_toga = ",2"
+                    is_dme = ",0"
+                    if procedure_details[6] == "D":
+                        is_dme = ",1"
+                    procedure_waypoints.append(procedure_details[4] + is_toga + is_dme)
+
+            if procedure_details[2] != procedure_name and in_procedure:
+                in_procedure = False
+
+            if procedure_type == "RWY":
+                runway_name = procedure_details[0].strip()
+                runway_details = procedure_details_orig.split(";")
+                runway_coords = runway_details[1].split(",")
+                runways[runway_name] = Waypoint(
+                    type_id=1,
+                    name=runway_name,
+                    latitude=dms2deg(runway_coords[0]),
+                    longitude=dms2deg(runway_coords[1]),
+                )
+
+    return procedure_waypoints, runway, runways, found_procedure_type
+
+
 class CIFP:
     def __init__(self):
         self._waypoint_cache = {}
         self._procedure_cache = {}
+        self._runways_cache = {}
 
-    def get_waypoint(self, waypoint_and_type: str, icao_code: str = None):
+    async def get_waypoint(self, waypoint_and_type: str, icao_code: str = None):
         waypoint_and_type = waypoint_and_type.split(",")
         waypoint = waypoint_and_type[0]
-        type_id = int(waypoint_and_type[1])
-        is_dme = int(waypoint_and_type[2])
         waypoint_key = f"{waypoint}-{icao_code}"
         if waypoint_key in self._waypoint_cache:
             return self._waypoint_cache[waypoint_key]
 
-        found_waypoints = []
-        if not is_dme:
-            with open(DEFAULT_EARTH_FIX_PATH) as earth_fix_file:
-                for _ in range(3):
-                    next(earth_fix_file)
-                for line in earth_fix_file:
-                    cols = line.split()
-                    if len(cols) < 5:
-                        continue
-                    if cols[2] == waypoint:
-                        found_waypoints.append([cols[0], cols[1], cols[3]])
-
-        # Waypoint might be a VOR/DME
-        if not found_waypoints:
-            with open(DEFAULT_EARTH_NAV_PATH) as earth_nav_file:
-                for _ in range(3):
-                    next(earth_nav_file)
-                for line in earth_nav_file:
-                    cols = line.split()
-                    if len(cols) < 10:
-                        continue
-                    if cols[7] == waypoint:
-                        found_waypoints.append([cols[1], cols[2], cols[3]])
-
-        if not found_waypoints:
-            return
-
-        matched_waypoint = found_waypoints[0]
-        if len(found_waypoints) > 1:
-            for found_waypoint in found_waypoints:
-                if found_waypoint[2] != "ENRT" and found_waypoint[2] == icao_code:
-                    matched_waypoint = found_waypoint
-
-        wpt = Waypoint(
-            type_id=type_id,
-            name=waypoint,
-            latitude=float(matched_waypoint[0]),
-            longitude=float(matched_waypoint[1]),
-        )
+        wpt = await run.cpu_bound(get_waypoint, waypoint_and_type, icao_code)
         self._waypoint_cache[waypoint_key] = wpt
         return wpt
 
-    def get_procedure(
+    async def get_procedure(
         self, procedure_name: str, icao_code: str, plan_runway: str = None
     ):
         procedure_key = f"{procedure_name}-{icao_code}"
         if procedure_key in self._procedure_cache:
             return self._procedure_cache[procedure_key]
 
-        file_path = os.path.join(DEFAULT_CIFP_PATH, f"{icao_code}.dat")
-        procedure_waypoints = []
-        runway = None
-        runways = {}
-        found_procedure_type = None
-        in_procedure = False
-        with open(file_path) as cifp_file:
-            for line in cifp_file:
-                procedure_type, procedure_details_orig = line.split(":")
-                procedure_details = procedure_details_orig.split(",")
-                if procedure_type == "APPCH":
-                    ignore_appch_a = procedure_details[1] == "A"
-                else:
-                    ignore_appch_a = False
-                if procedure_details[2] == procedure_name and not ignore_appch_a:
-                    in_procedure = True
-                    found_procedure_type = procedure_type
-                    runway = procedure_details[3]
-                    if not procedure_details[4].isspace():
-                        is_toga = ",1"
-                        # if procedure_details[9] == "L":
-                        #     is_toga = ",2"
-                        is_dme = ",0"
-                        if procedure_details[6] == "D":
-                            is_dme = ",1"
-                        procedure_waypoints.append(
-                            procedure_details[4] + is_toga + is_dme
-                        )
-
-                if procedure_details[2] != procedure_name and in_procedure:
-                    in_procedure = False
-
-                if procedure_type == "RWY":
-                    runway_name = procedure_details[0].strip()
-                    runway_details = procedure_details_orig.split(";")
-                    runway_coords = runway_details[1].split(",")
-                    runways[runway_name] = Waypoint(
-                        type_id=1,
-                        name=runway_name,
-                        latitude=dms2deg(runway_coords[0]),
-                        longitude=dms2deg(runway_coords[1]),
-                    )
+        procedure_waypoints, runway, runways, found_procedure_type = (
+            await run.cpu_bound(parse_procedure, procedure_name, icao_code)
+        )
+        self._runways_cache[icao_code] = runways
 
         waypoints = []
         if plan_runway is not None:
             waypoints.append(runways.get(plan_runway, None))
 
         for waypoint in procedure_waypoints:
-            wpt = self.get_waypoint(waypoint, icao_code)
+            wpt = await self.get_waypoint(waypoint, icao_code)
             if not wpt:
-                wpt = runways.get(waypoint, None)
+                waypoint_and_type = waypoint.split(",")
+                wpt = runways.get(waypoint_and_type[0], None)
             if not wpt:
                 logger.warning(f"Could not lookup waypoint {waypoint} {icao_code}")
                 continue
@@ -312,10 +332,10 @@ class FMS:
         self._update_plans()
         return self._plans
 
-    def get_plan(self, file_path: str, load_runway: bool):
+    async def get_plan(self, file_path: str, load_runway: bool):
         for plan in self.plans:
             if plan.file_path == file_path:
-                plan.load_procedures(self._cifp, self._apt, load_runway)
+                await plan.load_procedures(self._cifp, self._apt, load_runway)
                 return plan
 
 
