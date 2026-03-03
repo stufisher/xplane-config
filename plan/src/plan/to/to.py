@@ -18,6 +18,7 @@ class FlexVSpeeds(VSpeeds):
     flex: int | None
     requiredRunway: int
     availRunway: int
+    invalid: bool
 
 
 class TOCalculator:
@@ -62,8 +63,7 @@ class TOCalculator:
 
         settings = TakeoffInstance(
             **{
-                "availRunway": runway.length,  # * 3.28084,
-                "isMeters": True,
+                "availRunway": runway.length * 3.28084,
                 "runwayHeading": runway.heading,
                 "runwayAltitude": runway.elevation,
                 "windHeading": wind_heading,
@@ -95,10 +95,12 @@ class TOCalculator:
             ASD=asd,
         )
 
+        requiredRunway = int(settings.requiredRunway * 3.28084)
         return FlexVSpeeds(
             flex=flex.flex if flex.flex > flex.minFlex else None,
-            availRunway=int(settings.availRunway * 3.28084),
-            requiredRunway=int(settings.requiredRunway * 3.28084),
+            availRunway=int(settings.availRunway),
+            requiredRunway=requiredRunway,
+            invalid=requiredRunway > settings.availRunway,
             **asdict(v_speeds),
         )
 

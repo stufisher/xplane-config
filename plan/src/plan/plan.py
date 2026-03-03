@@ -217,6 +217,11 @@ class Plan:
         flex_vspeeds = await self._to.calc_vspeeds_flex(
             self._plan.ADEP, dep_runway, to_flaps, runway_condition, packs, anti_ice
         )
+        if flex_vspeeds.invalid:
+            logger.error(
+                f"TO Invalid, required runway {flex_vspeeds.requiredRunway} > {flex_vspeeds.availRunway}"
+            )
+            return
         log_type = logger.info if flex_vspeeds.flex else logger.warning
         log_type(
             f"TO Params: V1 {flex_vspeeds.v1} VR {flex_vspeeds.vr} V2 {flex_vspeeds.v2} Flex Temp: {flex_vspeeds.flex} Trim {trim}"

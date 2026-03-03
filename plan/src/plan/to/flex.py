@@ -890,16 +890,16 @@ def calculate_trim(cg: float):
 if __name__ == "__main__":
     settings = TakeoffInstance(
         **{
-            "availRunway": 12795,
-            "windHeading": 80,
-            "windKts": 3,
+            "availRunway": 5118,
+            "windHeading": 0,
+            "windKts": 2,
             "tow": 62000,
-            "baro": 1000,
-            "oat": 5,
+            "baro": 1027,
+            "oat": 10,
             "flaps": 1,
-            "runwayHeading": 225,
-            "runwayAltitude": 1411,
-            "antiIce": False,
+            "runwayHeading": 228,
+            "runwayAltitude": 142,
+            "antiIce": True,
             "packs": True,
             "toga": False,
             "runwayCondition": 0,
@@ -919,4 +919,4 @@ if __name__ == "__main__":
         settings.runwayCondition,
     )
 
-    print(ret, v_speeds)
+    print(settings.availRunway / 3.28084, ret, v_speeds)
