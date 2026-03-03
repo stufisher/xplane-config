@@ -12,10 +12,10 @@ DEFAULT_WEATHER_PATH = os.path.expanduser("~/X-Plane 12/Output/real weather")
 def sorted_listing_by_creation_time(directory):
     def get_creation_time(item):
         item_path = os.path.join(directory, item)
-        return os.path.getctime(item_path)
+        return os.path.getmtime(item_path)
 
     items = os.listdir(directory)
-    sorted_items = sorted(items, key=get_creation_time)
+    sorted_items = sorted(items)
     return sorted_items
 
 
