@@ -23,7 +23,7 @@ FCU_DREFS = [
     ["sim/cockpit/misc/barometer_setting", 11],
     ["sim/flightmodel/controls/parkbrake,0", 12],
     ["sim/aircraft/parts/acf_gear_deploy[0]", 13],
-    ["sim/cockpit2/autopilot/TOGA_status", 14],
+    ["AirbusFBW/HDGTRKmode", 14],
 ]
 
 
@@ -72,9 +72,11 @@ class FCU:
             dref_details = self.find_dref(dref)
             if dref_details:
                 value = self._udp.get_dref_value(dref)
-                if dref == "sim/cockpit/misc/barometer_setting":
-                    value *= 33.864
-                msg += struct.pack("<if", dref_details[1], value)
+                if value is not None:
+                    if dref == "sim/cockpit/misc/barometer_setting":
+                        value *= 33.864
+                    print("Sending", dref, value)
+                    msg += struct.pack("<if", dref_details[1], value)
         try:
             self._esp_sock.sendto(msg, (self._esp_ip, self._esp_port))
         except Exception:
