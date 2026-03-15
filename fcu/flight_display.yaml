@@ -117,8 +117,11 @@ display:
     update_interval: never
     id: disp1
     lambda: |-
-      //it.print(0, 0, id(roboto_16), "HDG TRK LAT");
-      it.print(0, 0, id(roboto_16), "HDG     LAT");
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(0, 0, id(roboto_16), "    TRK LAT");
+      } else {
+        it.print(0, 0, id(roboto_16), "HDG     LAT");
+      }
       if (isnan(id(hdg).state)) {
         it.print(0, 28, id(dseg), "---");
       } else {
@@ -133,13 +136,10 @@ display:
     update_interval: never
     id: disp2
     lambda: |-
-      it.print(8, 18, id(roboto_16), "HDG    V/S");
-      //it.print(8, 38, id(roboto_16), "TRK    FPA");
-      if (!isnan(id(toga).state) && id(toga).state) {
-        auto toga_state = id(toga).state;
-        it.print(12, 38, id(roboto_16), toga_state == 2 ? "TO/GA CAP" : "TO/GA ARM");
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(8, 38, id(roboto_16), "TRK    FPA");
       } else {
-        it.print(12, 38, id(roboto_16), "    -    ");
+        it.print(8, 18, id(roboto_16), "HDG    V/S");
       }
   - platform: ssd1306_i2c
     i2c_id: mpx3
@@ -161,21 +161,28 @@ display:
     update_interval: never
     id: disp4
     lambda: |-
-      //it.print(0, 0, id(roboto_16), "/CH   V/S FPA");
-      it.print(0, 0, id(roboto_16), "/CH   V/S");
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(0, 0, id(roboto_16), "/CH       FPA");
+      } else {
+        it.print(0, 0, id(roboto_16), "/CH   V/S");
+      }
       it.filled_rectangle(35, 10, 20, 2);
       it.filled_rectangle(53, 10, 2, 8);
       if (!isnan(id(alt_mgd).state) && id(alt_mgd).state) {
         it.filled_circle(10, 40, 8);
       }
       if (!isnan(id(vs_mgd).state) && !id(vs_mgd).state) {
-        it.filled_circle(100, 10, 4);
+        it.filled_circle(95, 10, 4);
       }
       if (isnan(id(vs).state)) {
         it.print(39, 28, id(dseg28), "----");
       } else {
         it.print(22, 29, id(dseg_14), id(vs).state < 0 ? "-": "+");
-        it.printf(39, 28, id(dseg28), "%04.0f", abs(id(vs).state));
+        if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+          it.printf(39, 28, id(dseg28), "%01.1f", abs(id(vs).state/1000.0));
+        } else {
+          it.printf(39, 28, id(dseg28), "%04.0f", abs(id(vs).state));
+        }
       }
   - platform: ssd1306_i2c
     i2c_id: mpx6
@@ -183,8 +190,8 @@ display:
     update_interval: never
     id: disp6
     lambda: |-
-      it.print(0, 0, id(roboto_16), "QFE");
-      //it.print(0, 0, id(roboto_16), "QFE  QNH");
+      //it.print(0, 0, id(roboto_16), "QFE");
+      it.print(0, 0, id(roboto_16), "     QNH");
       if (isnan(id(baro).state)) {
         it.print(0, 28, id(dseg), "----");
       } else {
@@ -253,7 +260,7 @@ udp:
                   {11, id(baro)},
                   {12, id(prk)},
                   {13, id(gear)},
-                  {14, id(toga)},
+                  {14, id(hdgtrk)},
               };
 
               uint8_t num_structs = (data.size() - 5) / sizeof(rref_data_type);
@@ -366,9 +373,11 @@ sensor:
     on_value:
       - component.update: disp7
   - platform: template
-    id: toga
-    name: TOGA
+    id: hdgtrk
+    name: HDGTRK
     accuracy_decimals: 0
     update_interval: never
     on_value:
       - component.update: disp2
+      - component.update: disp4
+      - component.update: disp1
