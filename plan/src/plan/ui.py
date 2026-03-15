@@ -419,6 +419,9 @@ class UI:
         self._spinner.set_visibility(False)
         self.update_weather()
 
+        if not self._plan.current:
+            return
+
         self._plan_detail.content = f"**DEPRW**: {self._plan.current.DEPRWY} ({self._plan.current.DEPRWY_LENGTH or '-'}ft) **SID**: {self._plan.current.SID} **STAR**: {self._plan.current.STAR} **APP**: {self._plan.current.APP} **DESRW**: {self._plan.current.DESRWY} ({self._plan.current.DESRWY_LENGTH or '-'}ft)"
 
         self._cruise_alt.value = self._plan.cruise

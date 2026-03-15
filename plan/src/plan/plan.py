@@ -136,6 +136,8 @@ class Plan:
             logger.warning(f"Could not set departure runway `{dep_runway}`")
 
         sid = self._plan.SID
+        if sid is None:
+            sid = "NO SID"
         logger.info(f"MCDU: Setting departure SID {sid}")
         row_id = await self._rest.find_row_in_display(sid)
         if row_id is not None:
@@ -151,43 +153,60 @@ class Plan:
         await self._rest.press_button("1R")
 
         # Approach
+        des_runway = self._plan.DESRWY.replace("RW", "RWY")
         app = self._plan.APP
-        logger.info(f"MCDU: Setting arrival approach {app}")
-        if app.startswith("L"):
-            app = app.replace("L", "LOC")
-        if app.startswith("I"):
-            app = app.replace("I", "ILS")
-        if app.startswith("R"):
-            app = app.replace("R", "RNV")
-        row_id = await self._rest.find_row_in_display(app)
-        if row_id is not None:
-            await self._rest.press_button(f"{row_id+1}L")
-        else:
-            # Try dashed variant
-            if (
-                app.endswith("X") or app.endswith("Y") or app.endswith("Z")
-            ) and "-" not in app:
-                app = app[:-1] + "-" + app[-1]
-                logger.info(f"MCDU: Trying dashed variant of APP `{app}`")
-                row_id = await self._rest.find_row_in_display(app, direction="DOWN")
-                if row_id is not None:
-                    await self._rest.press_button(f"{row_id+1}L")
-                else:
-                    logger.warning(f"Could not set departure APP `{app}`")
-            else:
-                logger.warning(f"Could not set departure APP `{app}`")
-
-        # Star
-        star = self._plan.STAR
-        if star:
-            logger.info(f"MCDU: Setting arrival STAR {star}")
-            row_id = await self._rest.find_row_in_display(star)
+        if app:
+            logger.info(f"MCDU: Setting arrival approach {app}")
+            if app.startswith("L"):
+                app = app.replace("L", "LOC")
+            if app.startswith("I"):
+                app = app.replace("I", "ILS")
+            if app.startswith("G"):
+                app = app.replace("G", "IGS")
+            if app.startswith("R"):
+                app = app.replace("R", "RNV")
+            row_id = await self._rest.find_row_in_display(app)
             if row_id is not None:
                 await self._rest.press_button(f"{row_id+1}L")
             else:
-                logger.warning(f"Could not set departure STAR `{star}`")
+                # Try dashed variant
+                if (
+                    app.endswith("X") or app.endswith("Y") or app.endswith("Z")
+                ) and "-" not in app:
+                    app = app[:-1] + "-" + app[-1]
+                    logger.info(f"MCDU: Trying dashed variant of APP `{app}`")
+                    row_id = await self._rest.find_row_in_display(app, direction="DOWN")
+                    if row_id is not None:
+                        await self._rest.press_button(f"{row_id+1}L")
+                    else:
+                        logger.warning(f"Could not set departure APP `{app}`")
+                else:
+                    logger.warning(f"Could not set departure APP `{app}`")
+
+            # Star
+            star = self._plan.STAR
+            if star:
+                logger.info(f"MCDU: Setting arrival STAR {star}")
+                row_id = await self._rest.find_row_in_display(star)
+                if row_id is not None:
+                    await self._rest.press_button(f"{row_id+1}L")
+                else:
+                    logger.warning(f"Could not set departure STAR `{star}`")
+            else:
+                logger.info("No STAR")
+
+        # No procedures but we do have a destination runway
+        elif des_runway:
+            logger.info(f"MCDU: No procedures, setting dest runway {des_runway}")
+            if row_id is not None:
+                await self._rest.press_button(f"{row_id+1}L")
+            # Set no STAR
+            row_id = await self._rest.find_row_in_display("NO STAR")
+            if row_id is not None:
+                await self._rest.press_button(f"{row_id+1}L")
+
         else:
-            logger.info("No STAR")
+            logger.warning("MCDU: No Desintation")
 
         await asyncio.sleep(0.2)
         await self._rest.press_button("6R")
