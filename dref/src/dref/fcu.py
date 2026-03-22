@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 FCU_DREFS = [
     ["AirbusFBW/SPDmanaged", 1],
-    ["sim/cockpit2/autopilot/airspeed_dial_kts,0", 2],
+    ["sim/cockpit2/autopilot/airspeed_dial_kts_mach,2", 2],
     ["AirbusFBW/HDGmanaged", 3],
     ["sim/cockpit/autopilot/heading_mag,0", 4],
     ["AirbusFBW/ALTmanaged", 5],
@@ -24,6 +24,7 @@ FCU_DREFS = [
     ["sim/flightmodel/controls/parkbrake,0", 12],
     ["sim/aircraft/parts/acf_gear_deploy[0]", 13],
     ["AirbusFBW/HDGTRKmode", 14],
+    ["sim/cockpit/autopilot/airspeed_is_mach", 15],
 ]
 
 
