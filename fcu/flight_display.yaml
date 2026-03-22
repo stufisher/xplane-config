@@ -102,11 +102,19 @@ display:
     update_interval: never
     id: disp0
     lambda: |-
-      it.print(0, 0, id(roboto_16), "SPD");
+      if (!isnan(id(spdmach).state) && id(spdmach).state) {
+        it.print(0, 0, id(roboto_16), "    MACH");
+      } else {
+        it.print(0, 0, id(roboto_16), "SPD");
+      }
       if (isnan(id(spd).state)) {
         it.print(0, 28, id(dseg), "---");
       } else {
-        it.printf(0, 28, id(dseg), "%3.0f", id(spd).state);
+        if (!isnan(id(spdmach).state) && id(spdmach).state) {
+          it.printf(0, 28, id(dseg), "%1.2f", id(spd).state);
+        } else {
+          it.printf(0, 28, id(dseg), "%3.0f", id(spd).state);
+        }
       }
       if (!isnan(id(spd_mgd).state) && id(spd_mgd).state) {
         it.filled_circle(100, 45, 8);
@@ -261,6 +269,7 @@ udp:
                   {12, id(prk)},
                   {13, id(gear)},
                   {14, id(hdgtrk)},
+                  {15, id(spdmach)},
               };
 
               uint8_t num_structs = (data.size() - 5) / sizeof(rref_data_type);
@@ -381,3 +390,10 @@ sensor:
       - component.update: disp2
       - component.update: disp4
       - component.update: disp1
+  - platform: template
+    id: spdmach
+    name: SPDMACH
+    accuracy_decimals: 0
+    update_interval: never
+    on_value:
+      - component.update: disp0
