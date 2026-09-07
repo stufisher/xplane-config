@@ -1,0 +1,541 @@
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+      CONFIG_OPENTHREAD_ENABLED: n
+      CONFIG_USE_MINIMAL_MDNS: y
+
+esphome:
+  friendly_name: fcu_mk2
+  name: fcu_mk2
+  platformio_options:
+    board_build.flash_mode: dio
+    build_flags:
+      - "-DBOARD_HAS_PSRAM"
+    board_build.arduino.memory_type: qio_opi
+
+  on_boot:
+    priority: 15.0
+    then:
+      - light.turn_on:
+          id: back_light
+          brightness: 25%
+          red: 100%
+          green: 59%
+          blue: 0%
+
+external_components:
+  - source: libs/home/components
+    components: [xplane_client]
+
+logger:
+
+api:
+  encryption:
+    key: !secret nti_api_key
+
+ota:
+  password: !secret nti_ota
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+
+xplane_client:
+  id: xp
+  # proxyed (default 8086)
+  port: 8087
+  on_websocket_connect:
+    - component.update: disp0
+    - component.update: disp1
+    - component.update: disp2
+    - component.update: disp3
+    - component.update: disp4
+    - component.update: disp5
+    - component.update: disp6
+    - component.update: disp7
+
+spi:
+  clk_pin: GPIO7
+  miso_pin: GPIO5
+  mosi_pin: GPIO6
+
+i2c:
+  sda: GPIO18
+  scl: GPIO19
+  id: bus_a
+  frequency: 400kHz
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 500
+    id: roboto_16
+    size: 16
+  - file:
+      type: gfonts
+      family: Roboto Mono
+      weight: 500
+    id: roboto_22
+    size: 22
+  - file: fonts/DSEG7ClassicMini-Regular.ttf
+    size: 32
+    id: dseg
+  - file: fonts/DSEG7ClassicMini-Regular.ttf
+    size: 28
+    id: dseg28
+  - file: fonts/DSEG14ClassicMini-Regular.ttf
+    size: 24
+    id: dseg_14
+
+tca9548a:
+    id: multiplex0
+    i2c_id: bus_a
+    channels:
+      - bus_id: mpx0
+        channel: 4
+      - bus_id: mpx1
+        channel: 3
+      - bus_id: mpx2
+        channel: 2
+      - bus_id: mpx3
+        channel: 1
+      - bus_id: mpx4
+        channel: 0
+      - bus_id: mpx5
+        channel: 6
+      - bus_id: mpx6
+        channel: 5
+      - bus_id: mpx7
+        channel: 7
+
+display:
+  - platform: ili9xxx
+    model: st7789v
+    cs_pin: GPIO14
+    dc_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    reset_pin: GPIO21
+    id: display1
+    dimensions: 
+      width: 172
+      height: 320
+      offset_width: 34
+    rotation: 90
+    invert_colors: true
+    update_interval: never
+    lambda: |-
+      it.printf(10, 0, id(roboto_24), "SPD");
+      it.printf(80, 0, id(roboto_24), "%03.0f", id(spd).state);
+      it.printf(10, 25, id(roboto_24), "HDG");
+      it.printf(80, 25, id(roboto_24), "%03.0f", id(hdg).state);
+      it.printf(10, 50, id(roboto_24), "ALT");
+      it.printf(80, 50, id(roboto_24), "%03.0f", id(alt).state);
+      it.printf(10, 75, id(roboto_24), "V/S");
+      it.printf(80, 75, id(roboto_24), "%03.0f", id(vs).state);
+
+  - platform: ssd1306_i2c
+    i2c_id: mpx0
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp0
+    lambda: |-
+      if (!isnan(id(spdmach).state) && id(spdmach).state) {
+        it.print(0, 0, id(roboto_16), "    MACH");
+      } else {
+        it.print(0, 0, id(roboto_16), "SPD");
+      }
+      if (isnan(id(spd).state) || (!isnan(id(spd_dashed).state) && id(spd_dashed).state)) {
+        it.print(0, 28, id(dseg), "---");
+      } else {
+        if (!isnan(id(spdmach).state) && id(spdmach).state) {
+          it.printf(0, 28, id(dseg), "%1.2f", id(spd).state);
+        } else {
+          it.printf(0, 28, id(dseg), "%3.0f", id(spd).state);
+        }
+      }
+      if (!isnan(id(spd_mgd).state) && id(spd_mgd).state) {
+        it.filled_circle(100, 45, 8);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx1
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp1
+    lambda: |-
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(0, 0, id(roboto_16), "    TRK LAT");
+      } else {
+        it.print(0, 0, id(roboto_16), "HDG     LAT");
+      }
+      if (isnan(id(hdg).state) || (!isnan(id(hdg_dashed).state) && id(hdg_dashed).state)) {
+        it.print(0, 28, id(dseg), "---");
+      } else {
+        it.printf(0, 28, id(dseg), "%03.0f", id(hdg).state);
+      }
+      if (!isnan(id(hdg_mgd).state) && id(hdg_mgd).state) {
+        it.filled_circle(100, 45, 8);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx2
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp2
+    lambda: |-
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(8, 38, id(roboto_16), "TRK    FPA");
+      } else {
+        it.print(8, 18, id(roboto_16), "HDG    V/S");
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx3
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp3
+    lambda: |-
+      it.print(41, 0, id(roboto_16), "ALT   LVL");
+      if (isnan(id(alt).state)) {
+        it.print(0, 28, id(dseg), "-----");
+      } else {
+        it.printf(0, 28, id(dseg), "%05.0f", id(alt).state);
+      }
+      it.filled_rectangle(76, 10, 20, 2);
+      it.filled_rectangle(76, 10, 2, 8);
+  - platform: ssd1306_i2c
+    i2c_id: mpx4
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp4
+    lambda: |-
+      if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+        it.print(0, 0, id(roboto_16), "/CH       FPA");
+      } else {
+        it.print(0, 0, id(roboto_16), "/CH   V/S");
+      }
+      it.filled_rectangle(35, 10, 20, 2);
+      it.filled_rectangle(53, 10, 2, 8);
+      if (!isnan(id(alt_mgd).state) && id(alt_mgd).state) {
+        it.filled_circle(10, 40, 8);
+      }
+      if (!isnan(id(vs_mgd).state) && !id(vs_mgd).state) {
+        it.filled_circle(95, 10, 4);
+      }
+      if (isnan(id(vs).state) || (!isnan(id(vs_mgd).state) && id(vs_mgd).state)) {
+        it.print(39, 28, id(dseg28), "----");
+      } else {
+        it.print(22, 29, id(dseg_14), id(vs).state < 0 ? "-": "+");
+        if (!isnan(id(hdgtrk).state) && id(hdgtrk).state) {
+          it.printf(39, 28, id(dseg28), "%01.1f", abs(id(vs).state/1000.0));
+        } else {
+          it.printf(39, 28, id(dseg28), "%04.0f", abs(id(vs).state));
+        }
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx6
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp6
+    lambda: |-
+      //it.print(0, 0, id(roboto_16), "QFE");
+      it.print(0, 0, id(roboto_16), "     QNH");
+      if (isnan(id(baro).state)) {
+        it.print(0, 28, id(dseg), "----");
+      } else {
+        if (!isnan(id(baro_std).state) && id(baro_std).state) {
+          it.printf(0, 28, id(dseg), "Std");
+        } else {
+          it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
+        }
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx5
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp5
+    lambda: |-
+      if (isnan(id(nav1).state)) {
+        it.print(0, 0, id(dseg28), "---.--");
+      } else {
+        it.printf(0, 0, id(dseg28), "%03.2f", id(nav1).state/100.0);
+      }
+      if (isnan(id(nav2).state)) {
+        it.print(0, 34, id(dseg28), "---.--");
+      } else {
+        it.printf(0, 34, id(dseg28), "%03.2f", id(nav2).state/100.0);
+      }
+  - platform: ssd1306_i2c
+    i2c_id: mpx7
+    model: "SSD1306 128x64"
+    update_interval: never
+    id: disp7
+    lambda: |-
+      auto draw_gear = [&](int x, bool down, bool unlk, bool open) {
+        const int w = 26;
+        if (open) {
+          it.print(x + w / 2, 9, id(roboto_16), TextAlign::CENTER, "OP");
+        }
+        if (unlk) {
+          it.print(x + w / 2, 27, id(roboto_16), TextAlign::CENTER, "UNK");
+        }
+        if (down) {
+          it.filled_triangle(x, 38, x + w, 38, x + w / 2, 58, COLOR_ON);
+        }
+      };
+        
+      auto gear_unlk = [&](float gear, bool lever) -> bool {
+        return (lever && gear < 2) || (!lever && gear > 0);
+      };
+      
+      bool lever = id(gear_lever).state;
+      
+      float nose_ind  = id(gear_nose_ind).state; 
+      float left_ind  = id(gear_left_ind).state;
+      float right_ind = id(gear_right_ind).state;
+      
+      draw_gear(4,  nose_ind  == 2, gear_unlk(nose_ind, lever),  id(gear_nose_doors).state > 0);
+      draw_gear(47, left_ind  == 2, gear_unlk(left_ind, lever),  id(gear_left_door).state  > 0);
+      draw_gear(90, right_ind == 2, gear_unlk(right_ind, lever), id(gear_right_door).state > 0);
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: display_back_light
+    restore_mode: ALWAYS_ON
+    icon: mdi:monitor
+  - platform: esp32_rmt_led_strip
+    id: back_light
+    chipset: ws2812
+    pin: GPIO09
+    num_leds: 6
+    rgb_order: GRB
+    name: "Backlight"
+
+sensor:
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit2/autopilot/airspeed_dial_kts_mach"
+    name: "FCU SPD"
+    id: spd
+    unit_of_measurement: "kt"
+    on_value:
+      - component.update: display1
+      - component.update: disp0
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/autopilot/heading_mag"
+    name: "FCU HDG"
+    id: hdg
+    unit_of_measurement: "°"
+    on_value:
+      - component.update: display1
+      - component.update: disp1
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit2/autopilot/altitude_dial_ft"
+    name: "FCU ALT"
+    id: alt
+    unit_of_measurement: "m"
+    on_value:
+      - component.update: display1
+      - component.update: disp3
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/autopilot/vertical_velocity"
+    name: "FCU VS"
+    id: vs
+    unit_of_measurement: "m/s"
+    on_value:
+      - component.update: display1
+      - component.update: disp4
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/SPDmanaged"
+    name: "SPD MGD"
+    id: spd_mgd
+    on_value:
+      - component.update: disp0
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/HDGmanaged"
+    name: "HDG MGD"
+    id: hdg_mgd
+    on_value:
+      - component.update: disp1
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/ALTmanaged"
+    name: ALT MGD
+    id: alt_mgd
+    on_value:
+      - component.update: disp4
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/VSdashed"
+    name: V/S Dashed
+    id: vs_mgd
+    on_value:
+      - component.update: disp4
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/SPDdashed"
+    name: SPD Dashed
+    id: spd_dashed
+    on_value:
+      - component.update: disp0
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/HDGdashed"
+    name: HDG Dashed
+    id: hdg_dashed
+    on_value:
+      - component.update: disp1
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/radios/com1_freq_hz"
+    name: NAV1
+    id: nav1
+    on_value:
+      - component.update: disp5
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/radios/com1_stdby_freq_hz"
+    name: NAV2
+    id: nav2
+    on_value:
+      - component.update: disp5
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/misc/barometer_setting"
+    name: BARO
+    id: baro
+    filters:
+      - multiply: 33.864
+    on_value:
+      - component.update: disp6
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/BaroStdCapt"
+    name: BARO STD
+    id: baro_std
+    on_value:
+      - component.update: disp6
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/HDGTRKmode"
+    name: HDGTRK
+    id: hdgtrk
+    on_value:
+      - component.update: disp2
+      - component.update: disp4
+      - component.update: disp1
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/autopilot/airspeed_is_mach"
+    name: SPDMACH
+    id: spdmach
+    on_value:
+      - component.update: disp0
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/NoseGearInd"
+    name: Nose Gear
+    id: gear_nose_ind
+    on_value:
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/LeftGearInd"
+    name: Left Gear
+    id: gear_left_ind
+    on_value:
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/RightGearInd"
+    name: Right Gear
+    id: gear_right_ind
+    on_value:
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/NoseGearDoorsOpen"
+    name: "Nose Gear Doors Open"
+    id: gear_nose_doors
+    accuracy_decimals: 2
+    on_value: 
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/LeftMLGDoor"
+    name: "Left Gear Door"
+    id: gear_left_door
+    accuracy_decimals: 2
+    on_value: 
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/RightMLGDoor"
+    name: "Right Gear Door"
+    id: gear_right_door
+    accuracy_decimals: 2
+    on_value: 
+      - component.update: disp7
+
+  - platform: xplane_client
+    xplane_client_id: xp
+    # AirbusFBW/SupplLightLevelRehostats -> 0,1 for writing
+    # dataref: "AirbusFBW/FCUIntegralBrightness"
+    dataref: "AirbusFBW/SupplLightLevelRehostats"
+    index: 0
+    name: "FCU Integral Brightness"
+    id: fcu_brightness_dataref
+    accuracy_decimals: 2
+    filters:
+      - delta: 0.01
+      - throttle: 100ms
+    on_value:
+      - light.turn_on:
+            id: back_light
+            brightness: !lambda "return x;"
+            transition_length: 0s 
+
+binary_sensor:
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/GearLever"
+    name: Gear Lever
+    id: gear_lever
+    on_state:
+      - component.update: disp7
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/flightmodel/controls/parkbrake"
+    index: 0
+    name: Park Brake
+    id: park_break
+    on_state:
+      - component.update: disp7
