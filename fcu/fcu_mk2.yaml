@@ -1,22 +1,23 @@
 esp32:
-  board: esp32-c6-devkitc-1
-  variant: esp32c6
-  flash_size: 4MB
-  framework:
-    type: esp-idf
-    sdkconfig_options:
-      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
-      CONFIG_OPENTHREAD_ENABLED: n
-      CONFIG_USE_MINIMAL_MDNS: y
+  board: esp32doit-devkit-v1
+  # board: esp32-c6-devkitc-1
+  # variant: esp32c6
+  # flash_size: 4MB
+  # framework:
+  #   type: esp-idf
+  #   sdkconfig_options:
+  #     CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
+  #     CONFIG_OPENTHREAD_ENABLED: n
+  #     CONFIG_USE_MINIMAL_MDNS: y
 
 esphome:
   friendly_name: fcu_mk2
   name: fcu_mk2
-  platformio_options:
-    board_build.flash_mode: dio
-    build_flags:
-      - "-DBOARD_HAS_PSRAM"
-    board_build.arduino.memory_type: qio_opi
+  # platformio_options:
+    # board_build.flash_mode: dio
+    # build_flags:
+    #   - "-DBOARD_HAS_PSRAM"
+    # board_build.arduino.memory_type: qio_opi
 
   on_boot:
     priority: 15.0
@@ -28,11 +29,18 @@ esphome:
           green: 59%
           blue: 0%
 
+debug:
+  update_interval: 5s
+
 external_components:
   - source: libs/home/components
-    components: [xplane_client]
+    components: [xplane_client, mcp23017_encoder]
 
 logger:
+  level: DEBUG
+  # baud_rate: 0
+  # baud_rate: 921600
+  # tx_buffer_size: 2048
 
 api:
   encryption:
@@ -62,16 +70,54 @@ xplane_client:
     - component.update: disp6
     - component.update: disp7
 
-spi:
-  clk_pin: GPIO7
-  miso_pin: GPIO5
-  mosi_pin: GPIO6
+# spi:
+#   clk_pin: GPIO7
+#   miso_pin: GPIO5
+#   mosi_pin: GPIO6
 
 i2c:
-  sda: GPIO18
-  scl: GPIO19
-  id: bus_a
-  frequency: 400kHz
+  # sda: GPIO18
+  # scl: GPIO19
+  - sda: GPIO27
+    scl: GPIO25
+    id: bus_a
+    frequency: 800kHz
+
+  - sda: GPIO21
+    scl: GPIO19
+    id: bus_b
+    frequency: 800kHz
+
+mcp23017_encoder:
+  - i2c_id: bus_b
+    id: mcp_enc
+    address: 0x20
+    # interrupt_pin: GPIO20
+    interrupt_pin: GPIO32
+    debounce: 0ms
+
+  - i2c_id: bus_b
+    id: mcp_enc_b
+    address: 0x24
+    interrupt_pin: GPIO26
+    debounce: 0ms
+
+mcp23017:
+  - i2c_id: bus_b
+    id: mcp_enc_inp_b
+    address: 0x24
+
+  - i2c_id: bus_b
+    id: mcp_enc_inp
+    address: 0x20
+
+tlc5947:
+  # data_pin: GPIO23
+  # clock_pin: GPIO12
+  # lat_pin: GPIO13
+  data_pin: GPIO04
+  clock_pin: GPIO17
+  lat_pin: GPIO18
 
 font:
   - file: "gfonts://Roboto"
@@ -121,30 +167,30 @@ tca9548a:
         channel: 7
 
 display:
-  - platform: ili9xxx
-    model: st7789v
-    cs_pin: GPIO14
-    dc_pin:
-      number: GPIO15
-      ignore_strapping_warning: true
-    reset_pin: GPIO21
-    id: display1
-    dimensions: 
-      width: 172
-      height: 320
-      offset_width: 34
-    rotation: 90
-    invert_colors: true
-    update_interval: never
-    lambda: |-
-      it.printf(10, 0, id(roboto_24), "SPD");
-      it.printf(80, 0, id(roboto_24), "%03.0f", id(spd).state);
-      it.printf(10, 25, id(roboto_24), "HDG");
-      it.printf(80, 25, id(roboto_24), "%03.0f", id(hdg).state);
-      it.printf(10, 50, id(roboto_24), "ALT");
-      it.printf(80, 50, id(roboto_24), "%03.0f", id(alt).state);
-      it.printf(10, 75, id(roboto_24), "V/S");
-      it.printf(80, 75, id(roboto_24), "%03.0f", id(vs).state);
+  # - platform: ili9xxx
+  #   model: st7789v
+  #   cs_pin: GPIO14
+  #   dc_pin:
+  #     number: GPIO15
+  #     ignore_strapping_warning: true
+  #   reset_pin: GPIO21
+  #   id: display1
+  #   dimensions: 
+  #     width: 172
+  #     height: 320
+  #     offset_width: 34
+  #   rotation: 90
+  #   invert_colors: true
+  #   update_interval: never
+  #   lambda: |-
+  #     it.printf(10, 0, id(roboto_24), "SPD");
+  #     it.printf(80, 0, id(roboto_24), "%03.0f", id(spd).state);
+  #     it.printf(10, 25, id(roboto_24), "HDG");
+  #     it.printf(80, 25, id(roboto_24), "%03.0f", id(hdg).state);
+  #     it.printf(10, 50, id(roboto_24), "ALT");
+  #     it.printf(80, 50, id(roboto_24), "%03.0f", id(alt).state);
+  #     it.printf(10, 75, id(roboto_24), "V/S");
+  #     it.printf(80, 75, id(roboto_24), "%03.0f", id(vs).state);
 
   - platform: ssd1306_i2c
     i2c_id: mpx0
@@ -309,24 +355,63 @@ display:
       draw_gear(90, right_ind == 2, gear_unlk(right_ind, lever), id(gear_right_door).state > 0);
 
 output:
-  - platform: ledc
-    pin: GPIO22
-    id: backlight_pwm
+#   - platform: ledc
+#     pin: GPIO22
+#     id: backlight_pwm
+
+  - platform: tlc5947
+    id: efis_1_backlight_output
+    channel: 0
+  - platform: tlc5947
+    id: efis_1_signal_output
+    channel: 1
 
 light:
-  - platform: monochromatic
-    output: backlight_pwm
-    name: "Display Backlight"
-    id: display_back_light
-    restore_mode: ALWAYS_ON
-    icon: mdi:monitor
+  # - platform: monochromatic
+  #   output: backlight_pwm
+  #   name: "Display Backlight"
+  #   id: display_back_light
+  #   restore_mode: ALWAYS_ON
+  #   icon: mdi:monitor
   - platform: esp32_rmt_led_strip
     id: back_light
     chipset: ws2812
-    pin: GPIO09
+    # pin: GPIO09
+    pin: GPIO22
     num_leds: 6
     rgb_order: GRB
     name: "Backlight"
+
+  - platform: monochromatic
+    name: "EFIS 1 BK"
+    id: efis_1_backlight
+    output: efis_1_backlight_output
+    default_transition_length: 0s 
+
+  - platform: monochromatic
+    name: "EFIS 1 SIG"
+    id: efis_1_signal
+    output: efis_1_signal_output
+    default_transition_length: 0s 
+
+globals:
+  - id: disp0_last_update
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: disp1_last_update
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: disp3_last_update
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: disp4_last_update
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
 
 sensor:
   - platform: xplane_client
@@ -335,18 +420,35 @@ sensor:
     name: "FCU SPD"
     id: spd
     unit_of_measurement: "kt"
+    filters:
+      - delta: 0.01
+    accuracy_decimals: 2
     on_value:
-      - component.update: display1
-      - component.update: disp0
+      # - component.update: display1
+      # - component.update: disp0
+      - lambda: |-
+          if (millis() - id(disp0_last_update) >= 200) {
+            id(disp0_last_update) = millis();
+            id(disp0)->update();
+          }
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "sim/cockpit/autopilot/heading_mag"
     name: "FCU HDG"
     id: hdg
     unit_of_measurement: "°"
+    accuracy_decimals: 1
+    filters:
+      - delta: 0.1
     on_value:
-      - component.update: display1
-      - component.update: disp1
+      # - component.update: display1
+      # - component.update: disp1
+      - lambda: |-
+          if (millis() - id(disp1_last_update) >= 200) {
+            id(disp1_last_update) = millis();
+            id(disp1)->update();
+          }
+
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "sim/cockpit2/autopilot/altitude_dial_ft"
@@ -354,8 +456,14 @@ sensor:
     id: alt
     unit_of_measurement: "m"
     on_value:
-      - component.update: display1
-      - component.update: disp3
+      # - component.update: display1
+      # - component.update: disp3
+      - lambda: |-
+          if (millis() - id(disp3_last_update) >= 200) {
+            id(disp3_last_update) = millis();
+            id(disp3)->update();
+          }
+
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "sim/cockpit/autopilot/vertical_velocity"
@@ -363,8 +471,13 @@ sensor:
     id: vs
     unit_of_measurement: "m/s"
     on_value:
-      - component.update: display1
-      - component.update: disp4
+      # - component.update: display1
+      # - component.update: disp4
+      - lambda: |-
+          if (millis() - id(disp4_last_update) >= 200) {
+            id(disp4_last_update) = millis();
+            id(disp4)->update();
+          }
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -390,7 +503,7 @@ sensor:
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "AirbusFBW/VSdashed"
-    name: V/S Dashed
+    name: VS Dashed
     id: vs_mgd
     on_value:
       - component.update: disp4
@@ -522,6 +635,110 @@ sensor:
             id: back_light
             brightness: !lambda "return x;"
             transition_length: 0s 
+      - light.turn_on:
+            id: efis_1_backlight
+            brightness: !lambda "return x * 0.3f;"
+            transition_length: 0s 
+
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc
+    id: alt_encoder
+    # resolution: 1
+    name: "ALT Encoder"
+    pin_a: 1
+    pin_b: 0
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/altitude_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/altitude_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc
+    id: rmp_encoder
+    name: "RMP Encoder 1"
+    # resolution: 1
+    pin_a: 9
+    pin_b: 8
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/RMP1FreqUpLrg"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/RMP1FreqDownLrg"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc
+    # resolution: 1
+    id: rmp_encoder2
+    name: "RMP Encoder 2"
+    pin_a: 10
+    pin_b: 11
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/RMP1FreqUpSml"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/RMP1FreqDownSml"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
+    id: hdg_encoder
+    name: "HDG Encoder"
+    pin_a: 1
+    pin_b: 0
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/heading_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/heading_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
+    id: spd_encoder
+    name: "SPD Encoder"
+    pin_a: 5
+    pin_b: 4
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/airspeed_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/airspeed_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
+    id: vs_encoder
+    name: "VS Encoder"
+    pin_a: 9
+    pin_b: 8
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/vertical_speed_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/vertical_speed_down"
+
+  - platform: debug
+    loop_time:
+      name: "Loop Time"
+    free:
+      name: "Heap Free"
 
 binary_sensor:
   - platform: xplane_client
@@ -539,3 +756,147 @@ binary_sensor:
     id: park_break
     on_state:
       - component.update: disp7
+
+
+  - platform: gpio
+    name: "ALT Push"
+    pin:
+      mcp23xxx: mcp_enc_inp
+      number: 2
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PushAltitude"
+
+  - platform: gpio
+    name: "ALT Pull"
+    pin:
+      mcp23xxx: mcp_enc_inp
+      number: 3
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PullAltitude"
+
+  - platform: gpio
+    name: "ALT 100 1000"
+    pin:
+      mcp23xxx: mcp_enc_inp
+      number: 4
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.set_dataref:
+            id: xp
+            dataref: "AirbusFBW/ALT100_1000"
+            value: 0
+    on_release: 
+      then:
+        - xplane_client.set_dataref:
+            id: xp
+            dataref: "AirbusFBW/ALT100_1000"
+            value: 1
+
+
+  - platform: gpio
+    name: "HDG Push"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 3
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PushHDGSel"
+
+  - platform: gpio
+    name: "HDG Pull"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 2
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PullHDGSel"
+
+  - platform: gpio
+    name: "SPD Push"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 7
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PushSPDSel"
+
+  - platform: gpio
+    name: "SPD Pull"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 6
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PullSPDSel"
+
+  - platform: gpio
+    name: "VS Push"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 11
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PushVSSel"
+
+  - platform: gpio
+    name: "VS Pull"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 10
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "AirbusFBW/PullVSSel"
