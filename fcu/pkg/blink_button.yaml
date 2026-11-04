@@ -1,0 +1,43 @@
+# Reusable: a matrix pushbutton with a BACKLIGHT and a STATUS LED that BLINKS on each press.
+# For buttons that have NO engaged-state dataref to track (e.g. ECAM TO CONFIG, Purser CALL) -
+# instead of a dataref-driven lamp (lit_button) the status LED flashes briefly on every press.
+# HIGH on press. Block YAML (a flow {} map can't hold a ${name} token). Vars:
+#   name     unique slug (ids: <name>_btn / flash_<name> / <name>_stat_out / <name>_bk_out)
+#   label    friendly name
+#   row,col  matrix position
+#   command  X-Plane command fired on press
+#   stat_ch  TLC channel for the blink LED
+#   bk_ch    TLC channel for the backlight (driven by the shared brightness fan-out in the main file)
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_press:
+      - xplane_client.send_command:
+          id: xp
+          command: ${command}
+      - script.execute: flash_${name}
+
+script:
+  # mode: restart -> a fresh press re-triggers the full blink instead of stacking.
+  - id: flash_${name}
+    mode: restart
+    then:
+      - output.set_level:
+          id: ${name}_stat_out
+          level: 100%
+      - delay: 500ms
+      - output.set_level:
+          id: ${name}_stat_out
+          level: 0%
+
+output:
+  - platform: tlc5947
+    id: ${name}_stat_out
+    channel: ${stat_ch}
+  - platform: tlc5947
+    id: ${name}_bk_out
+    channel: ${bk_ch}

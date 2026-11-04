@@ -88,7 +88,10 @@ xplane_client:
         condition: { lambda: "return id(parkbrake_sw).state;" }
         then: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_set" }]
         else: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_release" }]
-                                                              
+    - xplane_client.set_dataref:
+        id: xp
+        dataref: "AirbusFBW/ALT100_1000"
+        value: !lambda "return id(alt_100_1000_sw).state ? 0 : 1;"
   on_websocket_disconnect:                                                                        
     - lambda: 'id(xp_connected) = false;'
 
@@ -175,13 +178,6 @@ interval:
           condition:
             lambda: 'return !id(xp_connected);'
           then:
-            # - component.update: disp0
-            # - component.update: disp1
-            # - component.update: disp2
-            # - component.update: disp3
-            # - component.update: disp4
-            # - component.update: disp5
-            # - component.update: disp6
             - component.update: disp7
   # - interval: 200ms
   #   then:
@@ -192,14 +188,6 @@ interval:
   #         id(tlc).set_channel_value(i, 2048);
   #         ESP_LOGI("tlc_walk", "channel %d ON", i);
   #         i = (i + 1) % N;
-
-script:
-  - id: flash_call
-    mode: restart
-    then:
-      - output.set_level: { id: call_stat_out, level: 100% }
-      - delay: 500ms
-      - output.set_level: { id: call_stat_out, level: 0% }
 
 font:
   - file: "gfonts://Roboto"
@@ -453,10 +441,19 @@ packages:
   ls:   !include { file: pkg/lit_button.yaml, vars: { name: ls,   label: "EFIS LS",   row: "6", col: "6", command: "toliss_airbus/dispcommands/CaptLSButtonPush", dataref: "AirbusFBW/ILSonCapt", stat_ch: "1", bk_ch: "0" } }
 
   exped:         !include { file: pkg/plain_button.yaml, vars: { name: exped,         label: "FCU EXPED",      row: "1", col: "6", command: "AirbusFBW/EXPEDbutton", bk_ch: "14" } }
-  call:          !include { file: pkg/plain_button.yaml, vars: { name: call,          label: "Purser CALL",    row: "1", col: "5", command: "AirbusFBW/purser/fwd",  bk_ch: "4" } }
+  call:          !include { file: pkg/blink_button.yaml, vars: { name: call, label: "Purser CALL", row: "1", col: "5", command: "AirbusFBW/purser/fwd", stat_ch: "5", bk_ch: "4" } }
 
-  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", ch_b: "27" } }
-  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", ch_b: "25" } }
+  # ECAM
+  ecam_toconfig: !include { file: pkg/blink_button.yaml, vars: { name: ecam_toconfig, label: "ECAM TO CONFIG", row: "0", col: "2", command: "AirbusFBW/TOConfigPress", stat_ch: "65", bk_ch: "59" } }
+
+
+  # TERR ON ND = status (TerrainSelectedND1 != 0) + backlight -> lit_button.
+  terr: !include { file: pkg/lit_button.yaml, vars: { name: terr, label: "TERR ON ND", row: "6", col: "1", command: "toliss_airbus/dispcommands/TerrOnND1Toggle", dataref: "AirbusFBW/TerrainSelectedND1", stat_ch: "32", bk_ch: "33" } }
+  # GPWS/PULL = two lamps, no backlight (dref project: GPWS=OHPLightsATA34_Raw[22], PULL=[23]) -> korry_2lamp.
+  gpws: !include { file: pkg/korry_2lamp.yaml, vars: { name: gpws, label: "GPWS PULL", row: "5", col: "1", command: "AirbusFBW/GPWSMute", dref_a: "AirbusFBW/OHPLightsATA34_Raw", idx_a: "22", cond_a: "x != 0", ch_a: "30", dref_b: "AirbusFBW/OHPLightsATA34_Raw", idx_b: "23", cond_b: "x != 0", ch_b: "31" } }
+
+  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "27" } }
+  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "25" } }
 
   # BRK FAN korry (inverted): ON lamp + SPECIAL HOT lamp (BrakeTemperatureArray[0..3] > 300)
   brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "28", hot_ch: "29" } }
@@ -962,7 +959,8 @@ sensor:
           id(appr_bk_out).set_level(b);
           id(fd_bk_out).set_level(b);
           id(ls_bk_out).set_level(b);
-          id(call_bk_out).set_level(b); 
+          id(call_bk_out).set_level(b);
+          id(terr_bk_out).set_level(b);
 
   # EXPED lamp - lit when APVerticalMode >= 112 (EXP CLB/DES); button + backlight come from the package.
   - platform: xplane_client
@@ -1165,6 +1163,7 @@ binary_sensor:
 
   - platform: gpio
     name: "ALT 100 1000"
+    id: alt_100_1000_sw
     pin:
       mcp23xxx: mcp_enc_inp_b
       number: 11
@@ -1426,15 +1425,6 @@ binary_sensor:
     col: 0
     on_press: [ xplane_client.send_command: { id: xp, command: "sim/annunciator/clear_master_caution" } ]
 
-  - platform: matrix_keypad
-    keypad_id: btn_matrix
-    id: call_flash
-    internal: true
-    row: 1
-    col: 5
-    on_press:
-      - script.execute: flash_call
-
   # --- Park brake: ads2 A1 analog input read as binary (~3.28V = ON/set, ~0V = OFF/release) -----
   - platform: analog_threshold
     id: parkbrake_sw
@@ -1456,7 +1446,6 @@ output:
   - { platform: tlc5947, id: master_warn_out, channel: 6 }
   - { platform: tlc5947, id: master_caut_out, channel: 7 }
   - { platform: tlc5947, id: exped_stat_out, channel: 15 }
-  - { platform: tlc5947, id: call_stat_out, channel: 5 }
 
 light:
   - platform: monochromatic
@@ -1465,14 +1454,20 @@ light:
     output: master_warn_out
     default_transition_length: 0s
     effects:
-      - strobe:
+      # - strobe:
+      #     name: Flash
+      #     colors:
+      #       - state: true
+      #         brightness: 100%
+      #         duration: 250ms
+      #       - state: false
+      #         duration: 250ms
+      - pulse:
           name: Flash
-          colors:
-            - state: true
-              brightness: 100%
-              duration: 250ms
-            - state: false
-              duration: 250ms
+          transition_length: 250ms
+          update_interval: 250ms
+          min_brightness: 0%
+          max_brightness: 100%
   - platform: monochromatic
     id: master_caut_led
     name: "Master CAUT"
