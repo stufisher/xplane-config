@@ -1,0 +1,64 @@
+# Reusable: a matrix pushbutton with TWO independent status lamps, no backlight.
+# Each lamp is its own xplane_client dataref listener driving one TLC channel; the lamp lights when
+# its C++ boolean expression on `x` is true. The two lamps MAY share a dataref - the client stores
+# listeners in a vector and dispatches to all of them - so LO/MED/MAX pass the same AutoBrk* dref
+# for both lamps with cond_a "(int) x >= 1" (ON) and cond_b "(int) x == 2" (DECEL).
+# NOTE: non-inverted (HIGH on press) - no `invert` filter. Vars:
+#   name label row col command
+#   dref_a cond_a ch_a   (lamp A: dataref, bool expr, TLC channel)
+#   dref_b cond_b ch_b   (lamp B)
+# All lines use block YAML (not flow {}) because a flow map can't hold a ${name} token - the `{`
+# is read as a flow indicator and breaks parsing.
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_press:
+      - xplane_client.send_command:
+          id: xp
+          command: ${command}
+
+sensor:
+  - platform: xplane_client
+    dataref: ${dref_a}
+    id: ${name}_lt_a
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: "return ${cond_a};"
+          then:
+            - output.set_level:
+                id: ${name}_a_out
+                level: 100%
+          else:
+            - output.set_level:
+                id: ${name}_a_out
+                level: 0%
+  - platform: xplane_client
+    dataref: ${dref_b}
+    id: ${name}_lt_b
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: "return ${cond_b};"
+          then:
+            - output.set_level:
+                id: ${name}_b_out
+                level: 100%
+          else:
+            - output.set_level:
+                id: ${name}_b_out
+                level: 0%
+
+output:
+  - platform: tlc5947
+    id: ${name}_a_out
+    channel: ${ch_a}
+  - platform: tlc5947
+    id: ${name}_b_out
+    channel: ${ch_b}

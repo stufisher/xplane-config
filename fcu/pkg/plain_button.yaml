@@ -1,0 +1,19 @@
+# Reusable: a matrix pushbutton with a BACKLIGHT but NO status lamp (no engaged-state dataref).
+# Normal polarity. Used for TO CONFIG and Purser CALL. Vars:
+#   name label row col command bk_ch
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_press:
+      - xplane_client.send_command:
+          id: xp
+          command: ${command}
+
+output:
+  - platform: tlc5947
+    id: ${name}_bk_out
+    channel: ${bk_ch}

@@ -1,0 +1,169 @@
+esphome:
+  name: flaps-spdbrk
+  friendly_name: Flaps & Speedbrake
+
+esp32:
+  board: esp32-s3-devkitc-1 # CHANGE_ME
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+logger:
+  level: DEBUG
+api:
+
+ota:
+  platform: esphome
+
+# Pull in the shared components (xplane_client etc). Adjust the path if this file lives
+# outside the firmware/ dir alongside components/.
+external_components:
+  - source: libs/home/components
+    components: [xplane_client]
+
+xplane_client:
+  id: xp
+  # host: 192.168.1.50   # or omit to auto-discover X-Plane via its UDP beacon
+  port: 8087
+  # Hardware is authoritative: on every (re)connect push the panel's current state to the sim
+  # instead of reading the sim's state back. Fires after all names are resolved.
+  on_websocket_connect:
+    - if:
+        condition:
+          lambda: "return !isnan(id(flap_detent).state);"
+        then:
+          - xplane_client.set_dataref:
+              id: xp
+              dataref: "AirbusFBW/FlapLeverRatio"
+              value: !lambda "return id(flap_detent).state / 4.0f;"
+    - xplane_client.set_dataref:
+        id: xp
+        dataref: "sim/cockpit2/controls/speedbrake_ratio"
+        value: !lambda |-
+          if (id(spdbrk_arm_btn).state) return -0.5f;
+          float r = id(spdbrk_ratio).state;
+          return isnan(r) ? 0.0f : r;  // no reading yet -> RET
+
+# =============================================================================================
+# HARDWARE NOTES
+#  - Wired via the flaps/speedbrake stripboard: J1 = GPIO27 (ARM switch), GPIO34 (flap),
+#    GND, 5V/VIN, GPIO35 (speedbrake).
+#  - Hall sensors output 0-5V; ESP32 ADC is ~0-3.3V max. Each Hall goes through a 10k/15k
+#    divider on the stripboard (5V -> 3.0V) with 100nF to GND.
+#  - Use ADC1 pins only (GPIO32-39). ADC2 is unusable while WiFi is on. GPIO34-39 are input-only.
+#  - Calibration values below are PLACEHOLDERS. Read the "(V)" sensors in the logs while moving
+#    each lever: for flaps note the voltage AT each detent (set the thresholds to the midpoints
+#    between them); for the speedbrake note the voltage at RET and at FULL -> SPDBRK_V_MIN/MAX.
+# =============================================================================================
+
+sensor:
+  # --- FLAPS: Hall rotary, 5 detents 0/1/2/3/FULL -> AirbusFBW/FlapLeverRatio (0..1) -------
+  # Raw volts, for calibration (watch this in the logs while moving through the detents).
+  - platform: adc
+    pin: 7 # stripboard J1 row B
+    id: flap_lever_v
+    name: "Flap Lever (V)"
+    attenuation: 12db
+    update_interval: 100ms
+    filters:
+      - median: # soften Hall jitter so we don't flicker between detents
+          window_size: 7
+          send_every: 7
+          send_first_at: 7
+
+  # Detent 0..4 derived from the volts. The `delta` filter means on_value only fires when the
+  # detent actually changes, so no global is needed to de-duplicate writes.
+  # AirbusFBW/FlapRequestPos is READ-ONLY in the ToLiss dump (datarefs_a320.json); the writable
+  # lever is AirbusFBW/FlapLeverRatio (float). Detent/4 -> 0, .25, .5, .75, 1.0 is an ASSUMED
+  # mapping - verify in DataRefTool by moving the cockpit lever and reading FlapLeverRatio.
+  - platform: copy
+    source_id: flap_lever_v
+    id: flap_detent
+    name: "Flap Detent"
+    accuracy_decimals: 0
+    filters:
+      # Reverse-sense lever (measured 2026-11-03): 0=2.41V, 1=1.90V, 2=1.36V, 3=0.82V, FULL=0.30V.
+      # Voltage FALLS as flaps extend, so test high->low; thresholds are the detent midpoints.
+      - lambda: "return x > 2.155f ? 0 : x > 1.63f ? 1 : x > 1.09f ? 2 : x > 0.56f ? 3 : 4;"
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/FlapLeverRatio"
+          value: !lambda "return x / 4.0f;"
+
+  # --- SPEEDBRAKE: Hall rotary, CONTINUOUS RET..FULL -> speedbrake_ratio (0.0 .. 1.0) ---------
+  # The real A320 speedbrake is proportional, so map the lever straight through rather than
+  # quantising. While the ARM microswitch is pressed the Hall is ignored (the switch owns
+  # speedbrake_ratio = -0.5), so jitter at RET can never knock ARM off.
+  - platform: adc
+    pin: 6
+    id: spdbrk_lever_v
+    name: "Speedbrake Lever (V)"
+    attenuation: 12db
+    samples: 16 # oversample: average 16 conversions per reading
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 7
+          send_every: 7
+          send_first_at: 7
+
+  # Lever position 0.0..1.0 derived from the volts. Ends snap so RET is exactly 0 and FULL
+  # exactly 1, middle quantised to 1% steps. `delta: 0.02` = 2% hysteresis against jitter; the
+  # snapped ends are always >= 0.03 from any middle value, so RET/FULL always get sent.
+  - platform: copy
+    source_id: spdbrk_lever_v
+    id: spdbrk_ratio
+    name: "Speedbrake Ratio"
+    accuracy_decimals: 2
+    filters:
+      - lambda: |-
+          const float SPDBRK_V_MIN = 0.05f; // volts at RET  (measured 2026-11-03)
+          const float SPDBRK_V_MAX = 2.06f; // volts at FULL (measured 2026-11-03)
+          float r = (x - SPDBRK_V_MIN) / (SPDBRK_V_MAX - SPDBRK_V_MIN);
+          return r < 0.03f ? 0.0f : (r > 0.97f ? 1.0f : roundf(r * 100.0f) / 100.0f);
+      - delta: 0.02
+    on_value:
+      - if:
+          condition:
+            binary_sensor.is_off: spdbrk_arm_btn # ARMED: the switch owns the dataref
+          then:
+            - xplane_client.set_dataref:
+                id: xp
+                dataref: "sim/cockpit2/controls/speedbrake_ratio"
+                value: !lambda "return x;"
+
+binary_sensor:
+  # --- SPEEDBRAKE ARM: microswitch to GND, closed while the lever is pulled up to ARM ---------
+  # Pressed  -> speedbrake_ratio = -0.5 (X-Plane's "armed" value); Hall writes are suppressed.
+  # Released -> write the current lever position unconditionally, which disarms.
+  # UNVERIFIED: that ToLiss honours speedbrake_ratio writes (incl. -0.5). If it doesn't, fall
+  # back to the toliss_airbus/speedbrake/hold_armed command (needs hold support in xplane_client).
+  - platform: gpio
+    id: spdbrk_arm_btn
+    name: "Speedbrake ARM"
+    pin:
+      number: 5 # stripboard J1 row A
+      mode:
+        input: true
+        pullup: true
+      inverted: false # pressed = LOW with internal pullup
+    filters:
+      - delayed_on_off: 30ms # microswitch debounce
+    on_press:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "sim/cockpit2/controls/speedbrake_ratio"
+          value: -0.5
+    on_release:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "sim/cockpit2/controls/speedbrake_ratio"
+          value: !lambda |-
+            float r = id(spdbrk_ratio).state;
+            return isnan(r) ? 0.0f : r;  // current lever position, unconditionally

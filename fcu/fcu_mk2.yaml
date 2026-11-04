@@ -1,33 +1,9 @@
 esp32:
   board: esp32doit-devkit-v1
-  # board: esp32-c6-devkitc-1
-  # variant: esp32c6
-  # flash_size: 4MB
-  # framework:
-  #   type: esp-idf
-  #   sdkconfig_options:
-  #     CONFIG_ESPTOOLPY_FLASHSIZE_4MB: y
-  #     CONFIG_OPENTHREAD_ENABLED: n
-  #     CONFIG_USE_MINIMAL_MDNS: y
 
 esphome:
   friendly_name: fcu_mk2
   name: fcu_mk2
-  # platformio_options:
-    # board_build.flash_mode: dio
-    # build_flags:
-    #   - "-DBOARD_HAS_PSRAM"
-    # board_build.arduino.memory_type: qio_opi
-
-  on_boot:
-    priority: 15.0
-    then:
-      - light.turn_on:
-          id: back_light
-          brightness: 25%
-          red: 100%
-          green: 59%
-          blue: 0%
 
 debug:
   update_interval: 5s
@@ -37,7 +13,11 @@ external_components:
     components: [xplane_client, mcp23017_encoder]
 
 logger:
+  # level: INFO
   level: DEBUG
+  logs:
+    sensor.adc: INFO
+    ads1115.sensor: INFO
   # baud_rate: 0
   # baud_rate: 921600
   # tx_buffer_size: 2048
@@ -61,6 +41,7 @@ xplane_client:
   # proxyed (default 8086)
   port: 8087
   on_websocket_connect:
+    - lambda: 'id(xp_connected) = true;'
     - component.update: disp0
     - component.update: disp1
     - component.update: disp2
@@ -69,15 +50,50 @@ xplane_client:
     - component.update: disp5
     - component.update: disp6
     - component.update: disp7
+    - if:
+        condition: { lambda: "return !isnan(id(nd_mode).state);" }
+        then: [xplane_client.set_dataref: { id: xp, dataref: "AirbusFBW/NDmodeCapt",  value: !lambda "return (int) id(nd_mode).state;" }]
+    - if:
+        condition: { lambda: "return !isnan(id(nd_range).state);" }
+        then: [xplane_client.set_dataref: { id: xp, dataref: "AirbusFBW/NDrangeCapt", value: !lambda "return (int) id(nd_range).state;" }]
+    - if:
+        condition: { lambda: "return !isnan(id(wx_mode).state);" }
+        then: [xplane_client.set_dataref: { id: xp, dataref: "AirbusFBW/WXSwitchMode", value: !lambda "return (int) id(wx_mode).state;" }]
+    - if:
+        condition: { lambda: "return !isnan(id(xpdr_mode).state);" }
+        then: [xplane_client.set_dataref: { id: xp, dataref: "AirbusFBW/XPDRPower",    value: !lambda "return (int) id(xpdr_mode).state;" }]
+    - if:
+        condition: { lambda: "return !isnan(id(wx_sys).state);" }
+        then: [xplane_client.set_dataref: { id: xp, dataref: "AirbusFBW/WXPowerSwitch", value: !lambda "return (int) id(wx_sys).state;" }]
+    # VOR/ADF 1 & 2 have per-position commands, not a dataref: send the one matching the knob.
+    - if:
+        condition: { lambda: "float v = id(voradf1_v).state; return !isnan(v) && (int) v == 0;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_1_pilot_sel_adf" }]
+    - if:
+        condition: { lambda: "float v = id(voradf1_v).state; return !isnan(v) && (int) v == 1;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_1_pilot_sel_off" }]
+    - if:
+        condition: { lambda: "float v = id(voradf1_v).state; return !isnan(v) && (int) v == 2;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_1_pilot_sel_vor" }]
+    - if:
+        condition: { lambda: "float v = id(voradf2_v).state; return !isnan(v) && (int) v == 0;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_2_pilot_sel_adf" }]
+    - if:
+        condition: { lambda: "float v = id(voradf2_v).state; return !isnan(v) && (int) v == 1;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_2_pilot_sel_off" }]
+    - if:
+        condition: { lambda: "float v = id(voradf2_v).state; return !isnan(v) && (int) v == 2;" }
+        then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_2_pilot_sel_vor" }]
+    - if:
+        condition: { lambda: "return id(parkbrake_sw).state;" }
+        then: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_set" }]
+        else: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_release" }]
+                                                              
+  on_websocket_disconnect:                                                                        
+    - lambda: 'id(xp_connected) = false;'
 
-# spi:
-#   clk_pin: GPIO7
-#   miso_pin: GPIO5
-#   mosi_pin: GPIO6
 
 i2c:
-  # sda: GPIO18
-  # scl: GPIO19
   - sda: GPIO27
     scl: GPIO25
     id: bus_a
@@ -92,7 +108,6 @@ mcp23017_encoder:
   - i2c_id: bus_b
     id: mcp_enc
     address: 0x20
-    # interrupt_pin: GPIO20
     interrupt_pin: GPIO32
     debounce: 0ms
 
@@ -111,13 +126,80 @@ mcp23017:
     id: mcp_enc_inp
     address: 0x20
 
+  - i2c_id: bus_b
+    id: mcp_keypad
+    address: 0x22
+
+matrix_keypad:
+  id: btn_matrix
+  has_diodes: true
+  rows:
+    - pin: { mcp23xxx: mcp_keypad, number: 0, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 1, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 2, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 3, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 4, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 5, mode: { output: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 6, mode: { output: true } }
+  columns:
+    - pin: { mcp23xxx: mcp_keypad, number: 8,  mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 9,  mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 10, mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 11, mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 12, mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 13, mode: { input: true, pullup: true } }
+    - pin: { mcp23xxx: mcp_keypad, number: 14, mode: { input: true, pullup: true } }
+  on_key:
+    - lambda: ESP_LOGI("KEY", "key %d pressed", x);
+
 tlc5947:
-  # data_pin: GPIO23
-  # clock_pin: GPIO12
-  # lat_pin: GPIO13
+  id: tlc
   data_pin: GPIO04
   clock_pin: GPIO17
   lat_pin: GPIO18
+  num_chips: 2
+
+ads1115:
+  - address: 0x48
+    id: ads1
+    i2c_id: bus_b
+  - address: 0x49
+    id: ads2
+    i2c_id: bus_b
+
+
+interval:
+  - interval: 500ms
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(xp_connected);'
+          then:
+            # - component.update: disp0
+            # - component.update: disp1
+            # - component.update: disp2
+            # - component.update: disp3
+            # - component.update: disp4
+            # - component.update: disp5
+            # - component.update: disp6
+            - component.update: disp7
+  # - interval: 200ms
+  #   then:
+  #     - lambda: |-
+  #         const int N = 2 * 24; // chips * channels-per-chip (12-bit, full = 4095)
+  #         static int i = 0;
+  #         for (int k = 0; k < N; k++) id(tlc).set_channel_value(k, 0);
+  #         id(tlc).set_channel_value(i, 2048);
+  #         ESP_LOGI("tlc_walk", "channel %d ON", i);
+  #         i = (i + 1) % N;
+
+script:
+  - id: flash_call
+    mode: restart
+    then:
+      - output.set_level: { id: call_stat_out, level: 100% }
+      - delay: 500ms
+      - output.set_level: { id: call_stat_out, level: 0% }
 
 font:
   - file: "gfonts://Roboto"
@@ -167,31 +249,6 @@ tca9548a:
         channel: 7
 
 display:
-  # - platform: ili9xxx
-  #   model: st7789v
-  #   cs_pin: GPIO14
-  #   dc_pin:
-  #     number: GPIO15
-  #     ignore_strapping_warning: true
-  #   reset_pin: GPIO21
-  #   id: display1
-  #   dimensions: 
-  #     width: 172
-  #     height: 320
-  #     offset_width: 34
-  #   rotation: 90
-  #   invert_colors: true
-  #   update_interval: never
-  #   lambda: |-
-  #     it.printf(10, 0, id(roboto_24), "SPD");
-  #     it.printf(80, 0, id(roboto_24), "%03.0f", id(spd).state);
-  #     it.printf(10, 25, id(roboto_24), "HDG");
-  #     it.printf(80, 25, id(roboto_24), "%03.0f", id(hdg).state);
-  #     it.printf(10, 50, id(roboto_24), "ALT");
-  #     it.printf(80, 50, id(roboto_24), "%03.0f", id(alt).state);
-  #     it.printf(10, 75, id(roboto_24), "V/S");
-  #     it.printf(80, 75, id(roboto_24), "%03.0f", id(vs).state);
-
   - platform: ssd1306_i2c
     i2c_id: mpx0
     model: "SSD1306 128x64"
@@ -300,7 +357,7 @@ display:
         it.print(0, 28, id(dseg), "----");
       } else {
         if (!isnan(id(baro_std).state) && id(baro_std).state) {
-          it.printf(0, 28, id(dseg), "Std");
+          it.printf(0, 28, id(dseg), "5td");
         } else {
           it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
         }
@@ -327,6 +384,13 @@ display:
     update_interval: never
     id: disp7
     lambda: |-
+      if (!id(xp_connected)) {
+        it.print(0, 2,  id(roboto_16), "WAITING");
+        it.print(0, 24, id(roboto_16), "X-PLANE");
+        int n = (millis() / 500) % 4;
+        it.print(0, 46, id(roboto_16), std::string(n, '.').c_str());
+        return;
+      } 
       auto draw_gear = [&](int x, bool down, bool unlk, bool open) {
         const int w = 26;
         if (open) {
@@ -354,45 +418,6 @@ display:
       draw_gear(47, left_ind  == 2, gear_unlk(left_ind, lever),  id(gear_left_door).state  > 0);
       draw_gear(90, right_ind == 2, gear_unlk(right_ind, lever), id(gear_right_door).state > 0);
 
-output:
-#   - platform: ledc
-#     pin: GPIO22
-#     id: backlight_pwm
-
-  - platform: tlc5947
-    id: efis_1_backlight_output
-    channel: 0
-  - platform: tlc5947
-    id: efis_1_signal_output
-    channel: 1
-
-light:
-  # - platform: monochromatic
-  #   output: backlight_pwm
-  #   name: "Display Backlight"
-  #   id: display_back_light
-  #   restore_mode: ALWAYS_ON
-  #   icon: mdi:monitor
-  - platform: esp32_rmt_led_strip
-    id: back_light
-    chipset: ws2812
-    # pin: GPIO09
-    pin: GPIO22
-    num_leds: 6
-    rgb_order: GRB
-    name: "Backlight"
-
-  - platform: monochromatic
-    name: "EFIS 1 BK"
-    id: efis_1_backlight
-    output: efis_1_backlight_output
-    default_transition_length: 0s 
-
-  - platform: monochromatic
-    name: "EFIS 1 SIG"
-    id: efis_1_signal
-    output: efis_1_signal_output
-    default_transition_length: 0s 
 
 globals:
   - id: disp0_last_update
@@ -411,9 +436,309 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: '0'
+  - id: xp_connected
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+
+packages:
+  # FCU buttons (status + backlight)
+  loc:  !include { file: pkg/lit_button.yaml, vars: { name: loc,  label: "FCU LOC",   row: "5", col: "6", command: "AirbusFBW/LOCbutton",      dataref: "AirbusFBW/LOCilluminated", stat_ch: "23", bk_ch: "22" } }
+  ap1:  !include { file: pkg/lit_button.yaml, vars: { name: ap1,  label: "FCU AP1",   row: "4", col: "6", command: "toliss_airbus/ap1_push",   dataref: "AirbusFBW/AP1Engage",      stat_ch: "19", bk_ch: "18" } }
+  ap2:  !include { file: pkg/lit_button.yaml, vars: { name: ap2,  label: "FCU AP2",   row: "2", col: "6", command: "toliss_airbus/ap2_push",   dataref: "AirbusFBW/AP2Engage",      stat_ch: "17", bk_ch: "16" } }
+  athr: !include { file: pkg/lit_button.yaml, vars: { name: athr, label: "FCU A/THR", row: "3", col: "6", command: "AirbusFBW/ATHRbutton",     dataref: "AirbusFBW/ATHRmode",       stat_ch: "21", bk_ch: "20" } }
+  appr: !include { file: pkg/lit_button.yaml, vars: { name: appr, label: "FCU APPR",  row: "0", col: "6", command: "AirbusFBW/APPRbutton",     dataref: "AirbusFBW/APPRilluminated", stat_ch: "13", bk_ch: "12" } }
+  fd:   !include { file: pkg/lit_button.yaml, vars: { name: fd,   label: "EFIS FD",   row: "0", col: "5", command: "toliss_airbus/fd1_push",   dataref: "AirbusFBW/FD1Engage",      stat_ch: "3", bk_ch: "2" } }
+  ls:   !include { file: pkg/lit_button.yaml, vars: { name: ls,   label: "EFIS LS",   row: "6", col: "6", command: "toliss_airbus/dispcommands/CaptLSButtonPush", dataref: "AirbusFBW/ILSonCapt", stat_ch: "1", bk_ch: "0" } }
+
+  exped:         !include { file: pkg/plain_button.yaml, vars: { name: exped,         label: "FCU EXPED",      row: "1", col: "6", command: "AirbusFBW/EXPEDbutton", bk_ch: "14" } }
+  call:          !include { file: pkg/plain_button.yaml, vars: { name: call,          label: "Purser CALL",    row: "1", col: "5", command: "AirbusFBW/purser/fwd",  bk_ch: "4" } }
+
+  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", ch_b: "27" } }
+  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", ch_b: "25" } }
+
+  # BRK FAN korry (inverted): ON lamp + SPECIAL HOT lamp (BrakeTemperatureArray[0..3] > 300)
+  brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "28", hot_ch: "29" } }
 
 
 sensor:
+  - platform: ads1115
+    ads1115_id: ads1
+    multiplexer: A0_GND
+    gain: 6.144
+    id: nd_mode_v
+    name: "ND Mode (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - delta: 0.1
+
+  - platform: copy
+    source_id: nd_mode_v
+    id: nd_mode
+    name: "ND Mode"
+    accuracy_decimals: 0
+    filters:
+      - lambda: |-
+          const float VMIN = 0.00f, VMAX = 3.28f; const int N = 5; // LS..PLAN, measured 2026-11-03
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/NDmodeCapt"
+          value: !lambda "return (int) x;"
+
+  # --- EFIS ND RANGE selector: 6-position resistor-ladder rotary -> AirbusFBW/NDrangeCapt ------
+  - platform: ads1115
+    ads1115_id: ads1
+    multiplexer: A1_GND
+    gain: 6.144
+    id: nd_range_v
+    name: "ND Range (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+
+  # Position 0..N-1 from the volts above. `delta: 0.5` = only fires when the position changes.
+  - platform: copy
+    source_id: nd_range_v
+    id: nd_range
+    name: "ND Range"
+    accuracy_decimals: 0
+    filters:
+      - lambda: |-
+          const float VMIN = 0.10f; // volts at position 0   (CHANGE_ME)
+          const float VMAX = 3.28f; // volts at position 5   (CHANGE_ME)
+          const int N = 6;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/NDrangeCapt"
+          value: !lambda "return (int) x;"
+
+  # --- VOR/ADF 1 selector: 3-position ladder (VOR/OFF/ADF) -> explicit per-position command -----
+  - platform: ads1115
+    ads1115_id: ads1
+    multiplexer: A2_GND
+    gain: 6.144
+    id: voradf1_v
+    name: "VOR/ADF 1"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1 # emit every 100ms (was 7 = ~700ms lag), still median-of-5 smoothed
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+      - lambda: |-
+          const float VMIN = 0.00f; // CHANGE_ME
+          const float VMAX = 3.28f; // CHANGE_ME
+          const int N = 3;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5 # only pass when the quantised index changes
+    on_value:
+      - if:
+          condition:
+            lambda: "return (int) x == 0;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_1_pilot_sel_adf"
+      - if:
+          condition:
+            lambda: "return (int) x == 1;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_1_pilot_sel_off"
+      - if:
+          condition:
+            lambda: "return (int) x == 2;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_1_pilot_sel_vor"
+
+  # --- VOR/ADF 2 selector: 3-position ladder (VOR/OFF/ADF) -> explicit per-position command -----
+  - platform: ads1115
+    ads1115_id: ads1
+    multiplexer: A3_GND
+    gain: 6.144
+    id: voradf2_v
+    name: "VOR/ADF 2"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1 # emit every 100ms (was 7 = ~700ms lag), still median-of-5 smoothed
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+      - lambda: |-
+          const float VMIN = 0.00f; // CHANGE_ME
+          const float VMAX = 3.28f; // CHANGE_ME
+          const int N = 3;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - if:
+          condition:
+            lambda: "return (int) x == 0;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_2_pilot_sel_adf"
+      - if:
+          condition:
+            lambda: "return (int) x == 1;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_2_pilot_sel_off"
+      - if:
+          condition:
+            lambda: "return (int) x == 2;"
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/EFIS_2_pilot_sel_vor"
+
+  # --- WX radar SYS selector (voltage-divided 3-pos: SYS1/OFF/SYS2) -> AirbusFBW/WXPowerSwitch ---
+  # dref project order: 0 = SYS 1, 1 = OFF, 2 = SYS 2 (default.yaml). VERIFY against your switch.
+  - platform: ads1115
+    ads1115_id: ads2
+    multiplexer: A0_GND
+    gain: 6.144
+    id: wx_sys_v
+    name: "WX Radar SYS (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1 # emit every 100ms (was 7 = ~700ms lag), still median-of-5 smoothed
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+
+  # Position 0..N-1 from the volts above. `delta: 0.5` = only fires when the position changes.
+  - platform: copy
+    source_id: wx_sys_v
+    id: wx_sys
+    name: "WX Radar SYS"
+    accuracy_decimals: 0
+    filters:
+      - lambda: |-
+          const float VMIN = 0.00f; // volts at position 0 (CHANGE_ME)
+          const float VMAX = 3.28f; // volts at position 2 (CHANGE_ME)
+          const int N = 3;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/WXPowerSwitch"
+          value: !lambda "return (int) x;"
+
+  # --- WX radar MODE selector (WX/WX+T/TURB/MAP): 4-pos ladder -> AirbusFBW/WXSwitchMode 0..3 ----
+  - platform: ads1115
+    ads1115_id: ads2
+    multiplexer: A2_GND # was A1; park brake took A1
+    gain: 6.144
+    id: wx_mode_v
+    name: "WX Radar Mode (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1 # emit every 100ms (was 7 = ~700ms lag), still median-of-5 smoothed
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+
+  # Position 0..N-1 from the volts above. `delta: 0.5` = only fires when the position changes.
+  - platform: copy
+    source_id: wx_mode_v
+    id: wx_mode
+    name: "WX Radar Mode"
+    accuracy_decimals: 0
+    filters:
+      - lambda: |-
+          const float VMIN = 0.00f; // volts at position 0 (CHANGE_ME)
+          const float VMAX = 3.28f; // volts at position 3 (CHANGE_ME)
+          const int N = 4;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/WXSwitchMode"
+          value: !lambda "return (int) x;"
+
+  # --- XPDR/TCAS MODE selector (STBY/ALT/XPDR/TA/TA-RA): 5-pos ladder -> AirbusFBW/XPDRPower 0..4 -
+  - platform: ads1115
+    ads1115_id: ads2
+    multiplexer: A3_GND # was A2; shifted by the park-brake move onto A1
+    gain: 6.144
+    id: xpdr_mode_v
+    name: "XPDR Mode (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1 # emit every 100ms (was 7 = ~700ms lag), still median-of-5 smoothed
+          send_first_at: 1
+      - delta: 0.1 # dead-band: ignore sub-0.1V jitter (detents are ~0.9V apart)
+
+  # Position 0..N-1 from the volts above. `delta: 0.5` = only fires when the position changes.
+  - platform: copy
+    source_id: xpdr_mode_v
+    id: xpdr_mode
+    name: "XPDR Mode"
+    accuracy_decimals: 0
+    filters:
+      - lambda: |-
+          const float VMIN = 0.00f; // volts at position 0 (CHANGE_ME)
+          const float VMAX = 3.28f; // volts at position 4 (CHANGE_ME)
+          const int N = 5;
+          int p = (int) roundf((x - VMIN) / (VMAX - VMIN) * (N - 1));
+          return (float) (p < 0 ? 0 : (p > N - 1 ? N - 1 : p));
+      - delta: 0.5
+    on_value:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/XPDRPower"
+          value: !lambda "return (int) x;"
+
+  # --- Park brake sense: ads2 A1 analog input (~3.28V = ON / ~0V = OFF), read as binary below ---
+  - platform: ads1115
+    ads1115_id: ads2
+    multiplexer: A1_GND
+    gain: 6.144
+    id: parkbrake_v
+    name: "Park Brake (V)"
+    update_interval: 100ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+          send_first_at: 1
+      - delta: 0.1
+
+
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "sim/cockpit2/autopilot/airspeed_dial_kts_mach"
@@ -425,12 +750,12 @@ sensor:
     accuracy_decimals: 2
     on_value:
       # - component.update: display1
-      # - component.update: disp0
-      - lambda: |-
-          if (millis() - id(disp0_last_update) >= 200) {
-            id(disp0_last_update) = millis();
-            id(disp0)->update();
-          }
+      - component.update: disp0
+      # - lambda: |-
+      #     if (millis() - id(disp0_last_update) >= 200) {
+      #       id(disp0_last_update) = millis();
+      #       id(disp0)->update();
+      #     }
   - platform: xplane_client
     xplane_client_id: xp
     dataref: "sim/cockpit/autopilot/heading_mag"
@@ -442,12 +767,12 @@ sensor:
       - delta: 0.1
     on_value:
       # - component.update: display1
-      # - component.update: disp1
-      - lambda: |-
-          if (millis() - id(disp1_last_update) >= 200) {
-            id(disp1_last_update) = millis();
-            id(disp1)->update();
-          }
+      - component.update: disp1
+      # - lambda: |-
+      #     if (millis() - id(disp1_last_update) >= 200) {
+      #       id(disp1_last_update) = millis();
+      #       id(disp1)->update();
+      #     }
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -457,12 +782,12 @@ sensor:
     unit_of_measurement: "m"
     on_value:
       # - component.update: display1
-      # - component.update: disp3
-      - lambda: |-
-          if (millis() - id(disp3_last_update) >= 200) {
-            id(disp3_last_update) = millis();
-            id(disp3)->update();
-          }
+      - component.update: disp3
+      # - lambda: |-
+      #     if (millis() - id(disp3_last_update) >= 200) {
+      #       id(disp3_last_update) = millis();
+      #       id(disp3)->update();
+      #     }
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -472,12 +797,12 @@ sensor:
     unit_of_measurement: "m/s"
     on_value:
       # - component.update: display1
-      # - component.update: disp4
-      - lambda: |-
-          if (millis() - id(disp4_last_update) >= 200) {
-            id(disp4_last_update) = millis();
-            id(disp4)->update();
-          }
+      - component.update: disp4
+      # - lambda: |-
+      #     if (millis() - id(disp4_last_update) >= 200) {
+      #       id(disp4_last_update) = millis();
+      #       id(disp4)->update();
+      #     }
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -619,33 +944,92 @@ sensor:
       - component.update: disp7
 
   - platform: xplane_client
-    xplane_client_id: xp
-    # AirbusFBW/SupplLightLevelRehostats -> 0,1 for writing
-    # dataref: "AirbusFBW/FCUIntegralBrightness"
     dataref: "AirbusFBW/SupplLightLevelRehostats"
     index: 0
-    name: "FCU Integral Brightness"
-    id: fcu_brightness_dataref
-    accuracy_decimals: 2
+    id: panel_brightness
+    internal: true
     filters:
       - delta: 0.01
       - throttle: 100ms
     on_value:
-      - light.turn_on:
-            id: back_light
-            brightness: !lambda "return x;"
-            transition_length: 0s 
-      - light.turn_on:
-            id: efis_1_backlight
-            brightness: !lambda "return x * 0.3f;"
-            transition_length: 0s 
+      - lambda: |-
+          float b = x * 0.7;
+          id(loc_bk_out).set_level(b);
+          id(ap1_bk_out).set_level(b);
+          id(ap2_bk_out).set_level(b);
+          id(athr_bk_out).set_level(b);
+          id(exped_bk_out).set_level(b);
+          id(appr_bk_out).set_level(b);
+          id(fd_bk_out).set_level(b);
+          id(ls_bk_out).set_level(b);
+          id(call_bk_out).set_level(b); 
 
+  # EXPED lamp - lit when APVerticalMode >= 112 (EXP CLB/DES); button + backlight come from the package.
+  - platform: xplane_client
+    dataref: "AirbusFBW/APVerticalMode"
+    id: fcu_exped
+    internal: true
+    on_value:
+      - if: { condition: { lambda: "return (int) x >= 112;" }, then: [output.set_level: { id: exped_stat_out, level: 100% }], else: [output.set_level: { id: exped_stat_out, level: 0% }] }
+
+  - platform: xplane_client
+    dataref: "AirbusFBW/MasterWarn"
+    id: master_warn
+    internal: true
+    on_value:
+      - if:
+          condition: { lambda: "return x != 0;" }
+          then: [light.turn_on: { id: master_warn_led, effect: "Flash" }]
+          else: [light.turn_off: master_warn_led]
+  - platform: xplane_client
+    dataref: "AirbusFBW/MasterCaut"
+    id: master_caut
+    internal: true
+    on_value:
+      - if:
+          condition: { lambda: "return x != 0;" }
+          then: [light.turn_on: master_caut_led]
+          else: [light.turn_off: master_caut_led]
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc
+    id: hdg_encoder
+    name: "HDG Encoder"
+    resolution: 1
+    pin_a: 9
+    pin_b: 8
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/heading_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/heading_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc
+    id: spd_encoder
+    name: "SPD Encoder"
+    resolution: 1
+    pin_a: 13
+    pin_b: 12
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/airspeed_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/airspeed_down"
 
   - platform: mcp23017_encoder
     mcp23017_encoder_id: mcp_enc
     id: alt_encoder
-    # resolution: 1
+    resolution: 1
     name: "ALT Encoder"
+    # pin_a: 5
+    # pin_b: 4
     pin_a: 1
     pin_b: 0
     on_clockwise:
@@ -659,11 +1043,45 @@ sensor:
 
   - platform: mcp23017_encoder
     mcp23017_encoder_id: mcp_enc
+    id: vs_encoder
+    name: "VS Encoder"
+    resolution: 1
+    # pin_a: 1
+    # pin_b: 0
+    pin_a: 5
+    pin_b: 4
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/vertical_speed_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/autopilot/vertical_speed_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
+    resolution: 2
+    id: baro_encoder
+    name: "BARO Encoder"
+    pin_a: 1
+    pin_b: 0
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/instruments/barometer_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/instruments/barometer_down"
+
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
     id: rmp_encoder
     name: "RMP Encoder 1"
-    # resolution: 1
-    pin_a: 9
-    pin_b: 8
+    resolution: 2
+    pin_a: 6
+    pin_b: 7
     on_clockwise:
       - xplane_client.send_command:
           id: xp
@@ -674,12 +1092,12 @@ sensor:
           command: "AirbusFBW/RMP1FreqDownLrg"
 
   - platform: mcp23017_encoder
-    mcp23017_encoder_id: mcp_enc
-    # resolution: 1
+    mcp23017_encoder_id: mcp_enc_b
+    resolution: 2
     id: rmp_encoder2
     name: "RMP Encoder 2"
-    pin_a: 10
-    pin_b: 11
+    pin_a: 5
+    pin_b: 4
     on_clockwise:
       - xplane_client.send_command:
           id: xp
@@ -689,56 +1107,12 @@ sensor:
           id: xp
           command: "AirbusFBW/RMP1FreqDownSml"
 
-  - platform: mcp23017_encoder
-    mcp23017_encoder_id: mcp_enc_b
-    id: hdg_encoder
-    name: "HDG Encoder"
-    pin_a: 1
-    pin_b: 0
-    on_clockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/heading_up"
-    on_anticlockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/heading_down"
-
-  - platform: mcp23017_encoder
-    mcp23017_encoder_id: mcp_enc_b
-    id: spd_encoder
-    name: "SPD Encoder"
-    pin_a: 5
-    pin_b: 4
-    on_clockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/airspeed_up"
-    on_anticlockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/airspeed_down"
-
-  - platform: mcp23017_encoder
-    mcp23017_encoder_id: mcp_enc_b
-    id: vs_encoder
-    name: "VS Encoder"
-    pin_a: 9
-    pin_b: 8
-    on_clockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/vertical_speed_up"
-    on_anticlockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/autopilot/vertical_speed_down"
-
   - platform: debug
     loop_time:
       name: "Loop Time"
     free:
       name: "Heap Free"
+
 
 binary_sensor:
   - platform: xplane_client
@@ -757,11 +1131,11 @@ binary_sensor:
     on_state:
       - component.update: disp7
 
-
   - platform: gpio
     name: "ALT Push"
     pin:
       mcp23xxx: mcp_enc_inp
+      # number: 6
       number: 2
       mode:
         input: true
@@ -777,6 +1151,7 @@ binary_sensor:
     name: "ALT Pull"
     pin:
       mcp23xxx: mcp_enc_inp
+      # number: 7
       number: 3
       mode:
         input: true
@@ -791,8 +1166,8 @@ binary_sensor:
   - platform: gpio
     name: "ALT 100 1000"
     pin:
-      mcp23xxx: mcp_enc_inp
-      number: 4
+      mcp23xxx: mcp_enc_inp_b
+      number: 11
       mode:
         input: true
         pullup: true
@@ -810,12 +1185,11 @@ binary_sensor:
             dataref: "AirbusFBW/ALT100_1000"
             value: 1
 
-
   - platform: gpio
     name: "HDG Push"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 3
+      mcp23xxx: mcp_enc_inp
+      number: 11
       mode:
         input: true
         pullup: true
@@ -829,8 +1203,8 @@ binary_sensor:
   - platform: gpio
     name: "HDG Pull"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 2
+      mcp23xxx: mcp_enc_inp
+      number: 10
       mode:
         input: true
         pullup: true
@@ -844,8 +1218,8 @@ binary_sensor:
   - platform: gpio
     name: "SPD Push"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 7
+      mcp23xxx: mcp_enc_inp
+      number: 15
       mode:
         input: true
         pullup: true
@@ -859,8 +1233,8 @@ binary_sensor:
   - platform: gpio
     name: "SPD Pull"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 6
+      mcp23xxx: mcp_enc_inp
+      number: 14
       mode:
         input: true
         pullup: true
@@ -874,8 +1248,9 @@ binary_sensor:
   - platform: gpio
     name: "VS Push"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 11
+      mcp23xxx: mcp_enc_inp
+      # number: 3
+      number: 7
       mode:
         input: true
         pullup: true
@@ -889,8 +1264,9 @@ binary_sensor:
   - platform: gpio
     name: "VS Pull"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 10
+      mcp23xxx: mcp_enc_inp
+      # number: 2
+      number: 6
       mode:
         input: true
         pullup: true
@@ -900,3 +1276,205 @@ binary_sensor:
       - xplane_client.send_command:
           id: xp
           command: "AirbusFBW/PullVSSel"
+
+  - platform: gpio
+    name: "BARO Push"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 2
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "toliss_airbus/capt_baro_push"
+
+  - platform: gpio
+    name: "BARO Pull"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 3
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+      - xplane_client.send_command:
+          id: xp
+          command: "toliss_airbus/capt_baro_pull"
+
+
+  - platform: gpio
+    name: "RMP Swap"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 9
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "AirbusFBW/RMPSwapCapt"
+
+  - platform: gpio
+    name: "BARO Unit"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 10
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.set_dataref:
+            id: xp
+            dataref: "AirbusFBW/BaroUnitCapt"
+            value: 1
+    on_release: 
+      then:
+        - xplane_client.set_dataref:
+            id: xp
+            dataref: "AirbusFBW/BaroUnitCapt"
+            value: 0
+
+
+  - platform: gpio
+    name: "Metric Button"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 12
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "toliss_airbus/metric_alt_button_push"
+
+  - platform: gpio
+    name: "HDKTRK Button"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 13
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "toliss_airbus/hdgtrk_button_push"
+
+  - platform: gpio
+    name: "SPD_MACH Button"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 14
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "toliss_airbus/ias_mach_button_push"
+
+  - platform: gpio
+    name: "LDG Up Down"
+    pin:
+      mcp23xxx: mcp_enc_inp_b
+      number: 15
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    on_press: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "sim/flight_controls/landing_gear_up"
+    on_release: 
+      then:
+        - xplane_client.send_command:
+            id: xp
+            command: "sim/flight_controls/landing_gear_down"
+
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: master_warn_btn
+    name: "Master WARN Clr"
+    row: 6
+    col: 0
+    on_press: [ xplane_client.send_command: { id: xp, command: "sim/annunciator/clear_master_warning" } ]
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: master_caut_btn
+    name: "Master CAUT Clr"
+    row: 5
+    col: 0
+    on_press: [ xplane_client.send_command: { id: xp, command: "sim/annunciator/clear_master_caution" } ]
+
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: call_flash
+    internal: true
+    row: 1
+    col: 5
+    on_press:
+      - script.execute: flash_call
+
+  # --- Park brake: ads2 A1 analog input read as binary (~3.28V = ON/set, ~0V = OFF/release) -----
+  - platform: analog_threshold
+    id: parkbrake_sw
+    name: "Park Brake SW"
+    sensor_id: parkbrake_v
+    threshold:
+      upper: 3.0 # > 2.0V -> ON (set); gap to lower = hysteresis against jitter near mid-scale
+      lower: 2.8 # < 1.0V -> OFF (release)
+    on_release:
+      - xplane_client.send_command:
+          id: xp
+          command: "toliss_airbus/park_brake_set"
+    on_press:
+      - xplane_client.send_command:
+          id: xp
+          command: "toliss_airbus/park_brake_release"
+
+output:
+  - { platform: tlc5947, id: master_warn_out, channel: 6 }
+  - { platform: tlc5947, id: master_caut_out, channel: 7 }
+  - { platform: tlc5947, id: exped_stat_out, channel: 15 }
+  - { platform: tlc5947, id: call_stat_out, channel: 5 }
+
+light:
+  - platform: monochromatic
+    id: master_warn_led
+    name: "Master WARN"
+    output: master_warn_out
+    default_transition_length: 0s
+    effects:
+      - strobe:
+          name: Flash
+          colors:
+            - state: true
+              brightness: 100%
+              duration: 250ms
+            - state: false
+              duration: 250ms
+  - platform: monochromatic
+    id: master_caut_led
+    name: "Master CAUT"
+    output: master_caut_out
+    default_transition_length: 0s
