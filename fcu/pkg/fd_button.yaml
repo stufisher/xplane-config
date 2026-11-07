@@ -1,0 +1,71 @@
+# Reusable: EFIS FD button that drives BOTH flight directors together.
+# Press toggles the pair: if either side is engaged both go off, otherwise both come on. Writes
+# the engage datarefs directly rather than sending the per-side toggle commands, so the two sides
+# can't end up opposite each other. Status lamp is lit while either side is engaged.
+# Block YAML throughout (a flow {} map can't hold a ${name} token). Vars:
+#   name label row col dataref dataref2 stat_ch bk_ch
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_press:
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: ${dataref}
+          value: !lambda |-
+            return (id(${name}_lt).state != 0 || id(${name}_lt2).state != 0) ? 0 : 1;
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: ${dataref2}
+          value: !lambda |-
+            return (id(${name}_lt).state != 0 || id(${name}_lt2).state != 0) ? 0 : 1;
+
+sensor:
+  # Either side changing re-evaluates the lamp, so it tracks both.
+  - platform: xplane_client
+    dataref: ${dataref}
+    id: ${name}_lt
+    internal: true
+    on_value:
+      - script.execute: update_${name}_lamp
+  - platform: xplane_client
+    dataref: ${dataref2}
+    id: ${name}_lt2
+    internal: true
+    on_value:
+      - script.execute: update_${name}_lamp
+
+script:
+  - id: update_${name}_lamp
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: "return id(${name}_lt).state != 0 || id(${name}_lt2).state != 0;"
+          then:
+            - light.turn_on:
+                id: ${name}_stat_led
+                brightness: 100%
+          else:
+            - light.turn_off:
+                id: ${name}_stat_led
+
+# The status lamp is a light rather than a raw output so it can ramp instead of snapping.
+light:
+  - platform: monochromatic
+    id: ${name}_stat_led
+    output: ${name}_stat_out
+    internal: true
+    default_transition_length: 120ms
+    restore_mode: ALWAYS_OFF
+
+output:
+  - platform: tlc5947
+    id: ${name}_stat_out
+    channel: ${stat_ch}
+  - platform: tlc5947
+    id: ${name}_bk_out
+    channel: ${bk_ch}

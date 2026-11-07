@@ -1,6 +1,6 @@
 # Reusable: one illuminated matrix pushbutton = press command + on/off STATUS lamp + BACKLIGHT.
 # Normal polarity (HIGH on press). Include once per button via packages: with these vars:
-#   name     unique slug (ids become <name>_btn / <name>_lt / <name>_stat_out / <name>_bk_out)
+#   name     unique slug (ids: <name>_btn / <name>_lt / <name>_stat_led / <name>_stat_out / <name>_bk_out)
 #   label    friendly name shown in HA
 #   row,col  matrix position
 #   command  X-Plane command fired on press
@@ -29,13 +29,21 @@ sensor:
           condition:
             lambda: "return x != 0;"
           then:
-            - output.set_level:
-                id: ${name}_stat_out
-                level: 100%
+            - light.turn_on:
+                id: ${name}_stat_led
+                brightness: 100%
           else:
-            - output.set_level:
-                id: ${name}_stat_out
-                level: 0%
+            - light.turn_off:
+                id: ${name}_stat_led
+
+# The status lamp is a light rather than a raw output so it can ramp instead of snapping.
+light:
+  - platform: monochromatic
+    id: ${name}_stat_led
+    output: ${name}_stat_out
+    internal: true
+    default_transition_length: 120ms
+    restore_mode: ALWAYS_OFF
 
 output:
   - platform: tlc5947

@@ -1,0 +1,78 @@
+# Reusable: ECAM CLR button with a held-press secondary function.
+#   short press -> ${command}        (ECAM clear)
+#   hold >=1s   -> ${hold_command}   (TO CONFIG), plus a confirmation blink
+# The status lamp normally mirrors ${dataref} (CLR illuminated); the blink borrows it briefly and
+# then restores it to whatever the dataref currently says.
+# Block YAML throughout (a flow {} map can't hold a ${name} token). Vars:
+#   name label row col command hold_command dataref stat_ch bk_ch
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_multi_click:
+      # Longest timing first - on_multi_click takes the first pattern that matches.
+      - timing:
+          - ON for at least 1s
+        then:
+          - xplane_client.send_command:
+              id: xp
+              command: ${hold_command}
+          - script.execute: flash_${name}
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 50ms
+        then:
+          - xplane_client.send_command:
+              id: xp
+              command: ${command}
+
+script:
+  # Three quick blinks to confirm the held action, then hand the lamp back to the dataref.
+  - id: flash_${name}
+    mode: restart
+    then:
+      - repeat:
+          count: 3
+          then:
+            - output.set_level:
+                id: ${name}_stat_out
+                level: 0%
+            - delay: 120ms
+            - output.set_level:
+                id: ${name}_stat_out
+                level: 100%
+            - delay: 120ms
+      - script.execute: restore_${name}
+
+  - id: restore_${name}
+    then:
+      - if:
+          condition:
+            lambda: "return id(${name}_lt).state != 0;"
+          then:
+            - output.set_level:
+                id: ${name}_stat_out
+                level: 100%
+          else:
+            - output.set_level:
+                id: ${name}_stat_out
+                level: 0%
+
+sensor:
+  - platform: xplane_client
+    dataref: ${dataref}
+    id: ${name}_lt
+    internal: true
+    on_value:
+      - script.execute: restore_${name}
+
+output:
+  - platform: tlc5947
+    id: ${name}_stat_out
+    channel: ${stat_ch}
+  - platform: tlc5947
+    id: ${name}_bk_out
+    channel: ${bk_ch}

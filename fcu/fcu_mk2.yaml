@@ -1,5 +1,6 @@
 esp32:
   board: esp32doit-devkit-v1
+  # board: esp32-s3-devkitc-1
 
 esphome:
   friendly_name: fcu_mk2
@@ -86,24 +87,32 @@ xplane_client:
         then: [xplane_client.send_command: { id: xp, command: "sim/instruments/EFIS_2_pilot_sel_vor" }]
     - if:
         condition: { lambda: "return id(parkbrake_sw).state;" }
-        then: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_set" }]
-        else: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_release" }]
+        then: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_release" }]
+        else: [xplane_client.send_command: { id: xp, command: "toliss_airbus/park_brake_set" }]
     - xplane_client.set_dataref:
         id: xp
         dataref: "AirbusFBW/ALT100_1000"
         value: !lambda "return id(alt_100_1000_sw).state ? 0 : 1;"
+    - xplane_client.set_dataref:
+        id: xp
+        dataref: "AirbusFBW/BaroUnitCapt"
+        value: !lambda "return id(baro_unit_sw).state ? 1 : 0;"
   on_websocket_disconnect:                                                                        
     - lambda: 'id(xp_connected) = false;'
 
 
 i2c:
   - sda: GPIO27
+  # - sda: GPIO10
     scl: GPIO25
+    # scl: GPIO11
     id: bus_a
     frequency: 800kHz
 
   - sda: GPIO21
+  # - sda: GPIO01
     scl: GPIO19
+    # scl: GPIO02
     id: bus_b
     frequency: 800kHz
 
@@ -112,12 +121,14 @@ mcp23017_encoder:
     id: mcp_enc
     address: 0x20
     interrupt_pin: GPIO32
+    # interrupt_pin: GPIO12
     debounce: 0ms
 
   - i2c_id: bus_b
     id: mcp_enc_b
     address: 0x24
     interrupt_pin: GPIO26
+    # interrupt_pin: GPIO13
     debounce: 0ms
 
 mcp23017:
@@ -158,9 +169,16 @@ matrix_keypad:
 tlc5947:
   id: tlc
   data_pin: GPIO04
+  ## data_pin: GPIO07
   clock_pin: GPIO17
+  ## clock_pin: GPIO06
   lat_pin: GPIO18
-  num_chips: 2
+  ## lat_pin: GPIO05
+
+  # data_pin: GPIO00
+  # clock_pin: GPIO16
+  # lat_pin: GPIO05
+  num_chips: 3
 
 ads1115:
   - address: 0x48
@@ -179,10 +197,10 @@ interval:
             lambda: 'return !id(xp_connected);'
           then:
             - component.update: disp7
-  # - interval: 200ms
+  # - interval: 500ms
   #   then:
   #     - lambda: |-
-  #         const int N = 2 * 24; // chips * channels-per-chip (12-bit, full = 4095)
+  #         const int N = 3 * 24; // chips * channels-per-chip (12-bit, full = 4095)
   #         static int i = 0;
   #         for (int k = 0; k < N; k++) id(tlc).set_channel_value(k, 0);
   #         id(tlc).set_channel_value(i, 2048);
@@ -347,7 +365,11 @@ display:
         if (!isnan(id(baro_std).state) && id(baro_std).state) {
           it.printf(0, 28, id(dseg), "5td");
         } else {
-          it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
+          if (id(baro_unit_sw).state) {
+            it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
+          } else {
+            it.printf(0, 28, id(dseg), "%.2f", id(baro).state / 33.864f);   // inHg
+          }
         }
       }
   - platform: ssd1306_i2c
@@ -356,15 +378,18 @@ display:
     update_interval: never
     id: disp5
     lambda: |-
-      if (isnan(id(nav1).state)) {
-        it.print(0, 0, id(dseg28), "---.--");
+      if (id(rmp1_active).state.empty()) {
+        it.print(0, 0, id(dseg_14), "---.---");
       } else {
-        it.printf(0, 0, id(dseg28), "%03.2f", id(nav1).state/100.0);
+      
+        //it.printf(0, 0, id(dseg_14), "%03.3f", id(nav1).state);
+        it.print(0, 0, id(dseg_14), id(rmp1_active).state.c_str());
       }
-      if (isnan(id(nav2).state)) {
-        it.print(0, 34, id(dseg28), "---.--");
+      if (id(rmp1_standby).state.empty()) {
+        it.print(0, 34, id(dseg_14), "---.---");
       } else {
-        it.printf(0, 34, id(dseg28), "%03.2f", id(nav2).state/100.0);
+        //it.printf(0, 34, id(dseg_14), "%03.3f", id(nav2).state);
+        it.print(0, 34, id(dseg_14), id(rmp1_standby).state.c_str());
       }
   - platform: ssd1306_i2c
     i2c_id: mpx7
@@ -437,26 +462,53 @@ packages:
   ap2:  !include { file: pkg/lit_button.yaml, vars: { name: ap2,  label: "FCU AP2",   row: "2", col: "6", command: "toliss_airbus/ap2_push",   dataref: "AirbusFBW/AP2Engage",      stat_ch: "17", bk_ch: "16" } }
   athr: !include { file: pkg/lit_button.yaml, vars: { name: athr, label: "FCU A/THR", row: "3", col: "6", command: "AirbusFBW/ATHRbutton",     dataref: "AirbusFBW/ATHRmode",       stat_ch: "21", bk_ch: "20" } }
   appr: !include { file: pkg/lit_button.yaml, vars: { name: appr, label: "FCU APPR",  row: "0", col: "6", command: "AirbusFBW/APPRbutton",     dataref: "AirbusFBW/APPRilluminated", stat_ch: "13", bk_ch: "12" } }
-  fd:   !include { file: pkg/lit_button.yaml, vars: { name: fd,   label: "EFIS FD",   row: "0", col: "5", command: "toliss_airbus/fd1_push",   dataref: "AirbusFBW/FD1Engage",      stat_ch: "3", bk_ch: "2" } }
+  # fd:   !include { file: pkg/lit_button.yaml, vars: { name: fd,   label: "EFIS FD",   row: "0", col: "5", command: "toliss_airbus/fd1_push",   dataref: "AirbusFBW/FD1Engage",      stat_ch: "3", bk_ch: "2" } }
+  fd:   !include { file: pkg/fd_button.yaml, vars: { name: fd,   label: "EFIS FD",   row: "0", col: "5", dataref: "AirbusFBW/FD1Engage", dataref2: "AirbusFBW/FD2Engage", stat_ch: "3", bk_ch: "2" } }
   ls:   !include { file: pkg/lit_button.yaml, vars: { name: ls,   label: "EFIS LS",   row: "6", col: "6", command: "toliss_airbus/dispcommands/CaptLSButtonPush", dataref: "AirbusFBW/ILSonCapt", stat_ch: "1", bk_ch: "0" } }
 
   exped:         !include { file: pkg/plain_button.yaml, vars: { name: exped,         label: "FCU EXPED",      row: "1", col: "6", command: "AirbusFBW/EXPEDbutton", bk_ch: "14" } }
   call:          !include { file: pkg/blink_button.yaml, vars: { name: call, label: "Purser CALL", row: "1", col: "5", command: "AirbusFBW/purser/fwd", stat_ch: "5", bk_ch: "4" } }
 
-  # ECAM
-  ecam_toconfig: !include { file: pkg/blink_button.yaml, vars: { name: ecam_toconfig, label: "ECAM TO CONFIG", row: "0", col: "2", command: "AirbusFBW/TOConfigPress", stat_ch: "65", bk_ch: "59" } }
+  # EFIS option buttons (status = NDShow*, + backlight)
+  cstr: !include { file: pkg/lit_button.yaml, vars: { name: cstr, label: "EFIS CSTR",  row: "4", col: "1", command: "toliss_airbus/dispcommands/CaptCstrPushButton", dataref: "AirbusFBW/NDShowCSTRCapt", bk_ch: "24",  stat_ch: "25" } }
+  wpt:  !include { file: pkg/lit_button.yaml, vars: { name: wpt,  label: "EFIS WPT",   row: "3", col: "1", command: "toliss_airbus/dispcommands/CaptWptPushButton",  dataref: "AirbusFBW/NDShowWPTCapt",  bk_ch: "26",  stat_ch: "27" } }
+  vord: !include { file: pkg/lit_button.yaml, vars: { name: vord, label: "EFIS VOR.D", row: "2", col: "1", command: "toliss_airbus/dispcommands/CaptVorDPushButton", dataref: "AirbusFBW/NDShowVORDCapt", bk_ch: "28",  stat_ch: "29" } }
+  ndb:  !include { file: pkg/lit_button.yaml, vars: { name: ndb,  label: "EFIS NDB",   row: "1", col: "1", command: "toliss_airbus/dispcommands/CaptNdbPushButton",  dataref: "AirbusFBW/NDShowNDBCapt",  bk_ch: "30",  stat_ch: "31" } }
+  arpt: !include { file: pkg/lit_button.yaml, vars: { name: arpt, label: "EFIS ARPT",  row: "0", col: "1", command: "toliss_airbus/dispcommands/CaptArptPushButton", dataref: "AirbusFBW/NDShowARPTCapt", bk_ch: "32", stat_ch: "33" } }
 
+  # ECAM
+  # ecam_toconfig: !include { file: pkg/blink_button.yaml, vars: { name: ecam_toconfig, label: "ECAM TO CONFIG", row: "0", col: "2", command: "AirbusFBW/TOConfigPress", stat_ch: "65", bk_ch: "59" } }
+  # ECAM page buttons (status = SD<page>, + backlight)
+  ecam_eng:   !include { file: pkg/lit_button.yaml, vars: { name: ecam_eng,   label: "ECAM ENG",   row: "5", col: "2", command: "AirbusFBW/ECP/SelectEnginePage",        dataref: "AirbusFBW/SDENG",   stat_ch: "70", bk_ch: "71" } }
+  ecam_bleed: !include { file: pkg/lit_button.yaml, vars: { name: ecam_bleed, label: "ECAM BLEED", row: "4", col: "2", command: "AirbusFBW/ECP/SelectBleedPage",         dataref: "AirbusFBW/SDBLEED", stat_ch: "68", bk_ch: "69" } }
+  ecam_press: !include { file: pkg/lit_button.yaml, vars: { name: ecam_press, label: "ECAM PRESS", row: "3", col: "2", command: "AirbusFBW/ECP/SelectPressPage",         dataref: "AirbusFBW/SDPRESS", stat_ch: "66", bk_ch: "67" } }
+  ecam_elec:  !include { file: pkg/lit_button.yaml, vars: { name: ecam_elec,  label: "ECAM ELEC",  row: "2", col: "2", command: "AirbusFBW/ECP/SelectElecACPage",        dataref: "AirbusFBW/SDELEC",  stat_ch: "64", bk_ch: "65" } }
+  ecam_hyd:   !include { file: pkg/lit_button.yaml, vars: { name: ecam_hyd,   label: "ECAM HYD",   row: "1", col: "2", command: "AirbusFBW/ECP/SelectHydraulicPage",     dataref: "AirbusFBW/SDHYD",   stat_ch: "62", bk_ch: "63" } }
+  ecam_fuel:  !include { file: pkg/lit_button.yaml, vars: { name: ecam_fuel,  label: "ECAM FUEL",  row: "0", col: "2", command: "AirbusFBW/ECP/SelectFuelPage",          dataref: "AirbusFBW/SDFUEL",  stat_ch: "60", bk_ch: "61" } }
+  ecam_apu:   !include { file: pkg/lit_button.yaml, vars: { name: ecam_apu,   label: "ECAM APU",   row: "5", col: "3", command: "AirbusFBW/ECP/SelectAPUPage",           dataref: "AirbusFBW/SDAPU",   stat_ch: "49", bk_ch: "48" } }
+  ecam_cond:  !include { file: pkg/lit_button.yaml, vars: { name: ecam_cond,  label: "ECAM COND",  row: "4", col: "3", command: "AirbusFBW/ECP/SelectConditioningPage",  dataref: "AirbusFBW/SDCOND",  stat_ch: "51", bk_ch: "50" } }
+  ecam_door:  !include { file: pkg/lit_button.yaml, vars: { name: ecam_door,  label: "ECAM DOOR",  row: "3", col: "3", command: "AirbusFBW/ECP/SelectDoorOxyPage",       dataref: "AirbusFBW/SDDOOR",  stat_ch: "53", bk_ch: "52" } }
+  ecam_wheel: !include { file: pkg/lit_button.yaml, vars: { name: ecam_wheel, label: "ECAM WHEEL", row: "2", col: "3", command: "AirbusFBW/ECP/SelectWheelPage",         dataref: "AirbusFBW/SDWHEEL", stat_ch: "55", bk_ch: "54" } }
+  ecam_fctl:  !include { file: pkg/lit_button.yaml, vars: { name: ecam_fctl,  label: "ECAM F/CTL", row: "1", col: "3", command: "AirbusFBW/ECP/SelectFlightControlPage", dataref: "AirbusFBW/SDFCTL",  stat_ch: "57", bk_ch: "56" } }
+
+  # ecam_toconfig: !include { file: pkg/blink_button.yaml, vars: { name: ecam_toconfig, label: "ECAM TO CONFIG", row: "0", col: "3", command: "AirbusFBW/TOConfigPress", stat_ch: "59", bk_ch: "58" } }
+  ecam_toconfig: !include { file: pkg/clr_button.yaml, vars: { name: ecam_toconfig, label: "ECAM CLR / TO CONFIG", row: "0", col: "3", command: "AirbusFBW/ECP/CaptainClear", hold_command: "AirbusFBW/TOConfigPress", dataref: "AirbusFBW/CLRillum", stat_ch: "59", bk_ch: "58" } }
 
   # TERR ON ND = status (TerrainSelectedND1 != 0) + backlight -> lit_button.
-  terr: !include { file: pkg/lit_button.yaml, vars: { name: terr, label: "TERR ON ND", row: "6", col: "1", command: "toliss_airbus/dispcommands/TerrOnND1Toggle", dataref: "AirbusFBW/TerrainSelectedND1", stat_ch: "32", bk_ch: "33" } }
+  terr: !include { file: pkg/lit_button.yaml, vars: { name: terr, label: "TERR ON ND", row: "6", col: "1", command: "toliss_airbus/dispcommands/TerrOnND1Toggle", dataref: "AirbusFBW/TerrainSelectedND1", stat_ch: "39", bk_ch: "38" } }
   # GPWS/PULL = two lamps, no backlight (dref project: GPWS=OHPLightsATA34_Raw[22], PULL=[23]) -> korry_2lamp.
-  gpws: !include { file: pkg/korry_2lamp.yaml, vars: { name: gpws, label: "GPWS PULL", row: "5", col: "1", command: "AirbusFBW/GPWSMute", dref_a: "AirbusFBW/OHPLightsATA34_Raw", idx_a: "22", cond_a: "x != 0", ch_a: "30", dref_b: "AirbusFBW/OHPLightsATA34_Raw", idx_b: "23", cond_b: "x != 0", ch_b: "31" } }
+  # gpws: !include { file: pkg/korry_2lamp.yaml, vars: { name: gpws, label: "GPWS PULL", row: "5", col: "1", command: "AirbusFBW/GPWSMute", dref_a: "AirbusFBW/OHPLightsATA34_Raw", idx_a: "22", cond_a: "x != 0", ch_a: "30", dref_b: "AirbusFBW/OHPLightsATA34_Raw", idx_b: "23", cond_b: "x != 0", ch_b: "31" } }
+  gpws: !include { file: pkg/korry_2lamp.yaml, vars: { name: gpws, label: "GPWS PULL", row: "5", col: "1", command: "AirbusFBW/GPWSMute", dref_a: "AirbusFBW/OHPLightsATA34_Raw", idx_a: "22", cond_a: "x != 0", ch_a: "37", dref_b: "AirbusFBW/OHPLightsATA34_Raw", idx_b: "23", cond_b: "x != 0", ch_b: "36" } }
 
-  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "27" } }
-  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "25" } }
+  # med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "27" } }
+  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "43", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "42" } }
+  # max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "25" } }
+  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "45", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "44" } }
 
   # BRK FAN korry (inverted): ON lamp + SPECIAL HOT lamp (BrakeTemperatureArray[0..3] > 300)
-  brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "28", hot_ch: "29" } }
+  # brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "28", hot_ch: "29" } }
+  brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "40", hot_ch: "41" } }
+
 
 
 sensor:
@@ -844,20 +896,22 @@ sensor:
     on_value:
       - component.update: disp1
 
-  - platform: xplane_client
-    xplane_client_id: xp
-    dataref: "sim/cockpit/radios/com1_freq_hz"
-    name: NAV1
-    id: nav1
-    on_value:
-      - component.update: disp5
-  - platform: xplane_client
-    xplane_client_id: xp
-    dataref: "sim/cockpit/radios/com1_stdby_freq_hz"
-    name: NAV2
-    id: nav2
-    on_value:
-      - component.update: disp5
+  # - platform: xplane_client
+  #   xplane_client_id: xp
+  #   # dataref: "sim/cockpit/radios/com1_freq_hz"
+  #   dataref: "AirbusFBW/RMP1Freq"
+  #   name: NAV1
+  #   id: nav1
+  #   on_value:
+  #     - component.update: disp5
+  # - platform: xplane_client
+  #   xplane_client_id: xp
+  #   # dataref: "sim/cockpit/radios/com1_stdby_freq_hz"
+  #   dataref: "AirbusFBW/RMP1StbyFreq"
+  #   name: NAV2
+  #   id: nav2
+  #   on_value:
+  #     - component.update: disp5
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -950,7 +1004,7 @@ sensor:
       - throttle: 100ms
     on_value:
       - lambda: |-
-          float b = x * 0.7;
+          float b = x * 0.5;
           id(loc_bk_out).set_level(b);
           id(ap1_bk_out).set_level(b);
           id(ap2_bk_out).set_level(b);
@@ -961,6 +1015,23 @@ sensor:
           id(ls_bk_out).set_level(b);
           id(call_bk_out).set_level(b);
           id(terr_bk_out).set_level(b);
+          id(cstr_bk_out).set_level(b);
+          id(wpt_bk_out).set_level(b);
+          id(vord_bk_out).set_level(b);
+          id(ndb_bk_out).set_level(b);
+          id(arpt_bk_out).set_level(b);
+          id(ecam_eng_bk_out).set_level(b);
+          id(ecam_bleed_bk_out).set_level(b);
+          id(ecam_press_bk_out).set_level(b);
+          id(ecam_elec_bk_out).set_level(b);
+          id(ecam_hyd_bk_out).set_level(b);
+          id(ecam_fuel_bk_out).set_level(b);
+          id(ecam_apu_bk_out).set_level(b);
+          id(ecam_cond_bk_out).set_level(b);
+          id(ecam_door_bk_out).set_level(b);
+          id(ecam_wheel_bk_out).set_level(b);
+          id(ecam_fctl_bk_out).set_level(b);
+          id(ecam_toconfig_bk_out).set_level(b);
 
   # EXPED lamp - lit when APVerticalMode >= 112 (EXP CLB/DES); button + backlight come from the package.
   - platform: xplane_client
@@ -1105,6 +1176,22 @@ sensor:
           id: xp
           command: "AirbusFBW/RMP1FreqDownSml"
 
+  - platform: mcp23017_encoder
+    mcp23017_encoder_id: mcp_enc_b
+    resolution: 2
+    id: pitch_encoder
+    name: "Pitch Trim Encoder"
+    pin_a: 8
+    pin_b: 12
+    on_clockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/flight_controls/pitch_trim_up"
+    on_anticlockwise:
+      - xplane_client.send_command:
+          id: xp
+          command: "sim/flight_controls/pitch_trim_down"
+
   - platform: debug
     loop_time:
       name: "Loop Time"
@@ -1120,14 +1207,14 @@ binary_sensor:
     id: gear_lever
     on_state:
       - component.update: disp7
-  - platform: xplane_client
-    xplane_client_id: xp
-    dataref: "sim/flightmodel/controls/parkbrake"
-    index: 0
-    name: Park Brake
-    id: park_break
-    on_state:
-      - component.update: disp7
+  # - platform: xplane_client
+  #   xplane_client_id: xp
+  #   dataref: "sim/flightmodel/controls/parkbrake"
+  #   index: 0
+  #   name: Park Brake
+  #   id: park_break
+  #   on_state:
+  #     - component.update: disp7
 
   - platform: gpio
     name: "ALT Push"
@@ -1324,6 +1411,7 @@ binary_sensor:
 
   - platform: gpio
     name: "BARO Unit"
+    id: baro_unit_sw
     pin:
       mcp23xxx: mcp_enc_inp_b
       number: 10
@@ -1337,19 +1425,21 @@ binary_sensor:
             id: xp
             dataref: "AirbusFBW/BaroUnitCapt"
             value: 1
+        - component.update: disp6
     on_release: 
       then:
         - xplane_client.set_dataref:
             id: xp
             dataref: "AirbusFBW/BaroUnitCapt"
             value: 0
+        - component.update: disp6
 
 
   - platform: gpio
     name: "Metric Button"
     pin:
-      mcp23xxx: mcp_enc_inp_b
-      number: 12
+      mcp23xxx: mcp_keypad
+      number: 15
       mode:
         input: true
         pullup: true
@@ -1441,6 +1531,22 @@ binary_sensor:
       - xplane_client.send_command:
           id: xp
           command: "toliss_airbus/park_brake_release"
+
+text_sensor:
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/RMP1/ActiveWindowString"
+    id: rmp1_active
+    internal: true
+    on_value:
+      - component.update: disp5
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "AirbusFBW/RMP1/StandbyWindowString"
+    id: rmp1_standby
+    internal: true
+    on_value:
+      - component.update: disp5
 
 output:
   - { platform: tlc5947, id: master_warn_out, channel: 6 }

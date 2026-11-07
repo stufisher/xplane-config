@@ -5,8 +5,8 @@
 # for both lamps with cond_a "(int) x >= 1" (ON) and cond_b "(int) x == 2" (DECEL).
 # NOTE: non-inverted (HIGH on press) - no `invert` filter. Vars:
 #   name label row col command
-#   dref_a cond_a ch_a   (lamp A: dataref, bool expr, TLC channel)
-#   dref_b cond_b ch_b   (lamp B)
+#   dref_a idx_a cond_a ch_a   (lamp A: dataref, array index (-1 = whole/scalar), bool expr, TLC ch)
+#   dref_b idx_b cond_b ch_b   (lamp B)
 # All lines use block YAML (not flow {}) because a flow map can't hold a ${name} token - the `{`
 # is read as a flow indicator and breaks parsing.
 binary_sensor:
@@ -24,6 +24,7 @@ binary_sensor:
 sensor:
   - platform: xplane_client
     dataref: ${dref_a}
+    index: ${idx_a}
     id: ${name}_lt_a
     internal: true
     on_value:
@@ -40,6 +41,7 @@ sensor:
                 level: 0%
   - platform: xplane_client
     dataref: ${dref_b}
+    index: ${idx_b}
     id: ${name}_lt_b
     internal: true
     on_value:
