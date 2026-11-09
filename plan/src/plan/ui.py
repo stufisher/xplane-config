@@ -36,6 +36,12 @@ TOOLTIP_OPTIONS = {
     "direction": "right",
     "className": "leaflet-tooltip-nicegui",
 }
+SEGMENT_COLOURS = {
+    "SID": "cyan",
+    "ENRT": "green",
+    "STAR": "purple",
+    "APP": "magenta",
+}
 
 
 def weather_text(metar) -> str:
@@ -125,6 +131,7 @@ class UI:
         self._udp = UDP(self._apt)
         self._background_running = True
         self._map_markers = []
+        self._map_lines = []
         self._log_handler = None
         self._last_location_update_time = 0
         self._map_center = None
@@ -476,22 +483,39 @@ class UI:
         # Layer method calls are dropped until the map reports itself initialised
         await self._map.initialized()
 
-        for marker, _, _ in self._map_markers:
+        for layer in [marker for marker, _, _ in self._map_markers] + self._map_lines:
             try:
-                self._map.remove_layer(marker)
+                self._map.remove_layer(layer)
             except Exception:
-                logger.debug("Could not remove existing marker")
+                logger.debug("Could not remove existing layer")
         self._map_markers = []
+        self._map_lines = []
 
-        for waypoint in self._plan.current.all_waypoints:
-            marker = self._map.marker(latlng=(waypoint.latitude, waypoint.longitude))
-            icon = ICON_DIAMOND(
-                "cyan"
-                if waypoint.type_id == 2
-                else ("green" if waypoint.type_id == 1 else "purple")
-            )
-            self._map_markers.append((marker, icon, waypoint.name))
-            self._decorate_waypoint(marker, icon, waypoint.name)
+        # Consecutive segments share the fix they join at, which belongs in both
+        # polylines but only needs one marker
+        plotted = set()
+        for segment, waypoints in self._plan.current.segments:
+            colour = SEGMENT_COLOURS[segment]
+            icon = ICON_DIAMOND(colour)
+            for waypoint in waypoints:
+                if waypoint.name in plotted:
+                    continue
+                plotted.add(waypoint.name)
+                marker = self._map.marker(
+                    latlng=(waypoint.latitude, waypoint.longitude)
+                )
+                self._map_markers.append((marker, icon, waypoint.name))
+                self._decorate_waypoint(marker, icon, waypoint.name)
+            if len(waypoints) > 1:
+                self._map_lines.append(
+                    self._map.generic_layer(
+                        name="polyline",
+                        args=[
+                            [(w.latitude, w.longitude) for w in waypoints],
+                            {"color": colour, "weight": 2},
+                        ],
+                    )
+                )
 
         route = []
         for waypoint in self._plan.current.waypoints:

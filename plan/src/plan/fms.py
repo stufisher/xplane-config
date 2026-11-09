@@ -89,11 +89,15 @@ class FMSPlan:
         logger.info("Done loading")
 
     @property
-    def all_waypoints(self):
-        sid_waypoints = self.sid_proc.waypoints if self.sid_proc else []
-        star_waypoints = self.star_proc.waypoints if self.star_proc else []
-        app_waypoints = self.app_proc.waypoints if self.app_proc else []
-        return self.waypoints + sid_waypoints + star_waypoints + app_waypoints
+    def segments(self) -> list[tuple[str, list[Waypoint]]]:
+        """Waypoints grouped by leg, ordered from departure to arrival."""
+        legs = [
+            ("SID", self.sid_proc.waypoints if self.sid_proc else []),
+            ("ENRT", self.waypoints),
+            ("STAR", self.star_proc.waypoints if self.star_proc else []),
+            ("APP", self.app_proc.waypoints if self.app_proc else []),
+        ]
+        return [(name, waypoints) for name, waypoints in legs if waypoints]
 
 
 def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
@@ -142,36 +146,40 @@ def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
     )
 
 
+def normalise_runway(name: str):
+    return name.strip().removeprefix("RW") if name else ""
+
+
+def runway_matches(name: str, wanted: str):
+    """Whether a CIFP runway or transition identifier covers the runway wanted.
+
+    A trailing B stands for every parallel runway with that number, so RW04B is
+    flown from 04L, 04C and 04R alike.
+    """
+    name = normalise_runway(name)
+    wanted = normalise_runway(wanted)
+    if name.endswith("B"):
+        return name[:-1] == wanted[:2]
+    return name == wanted
+
+
 def parse_procedure(procedure_name: str, icao_code: str):
+    """Return the procedure's legs grouped by transition, its runways and its type.
+
+    A procedure name covers several alternative routes: one set of legs per
+    departure/arrival runway, plus one per enroute transition. They are keyed by
+    the transition identifier, which holds either a runway (RW04) or the fix the
+    transition ends at, so the caller can pick the route actually being flown.
+    """
     file_path = os.path.join(DEFAULT_CIFP_PATH, f"{icao_code}.dat")
-    procedure_waypoints = []
-    runway = None
+    transitions = {}
+    complete = set()
     runways = {}
     found_procedure_type = None
-    in_procedure = False
     with open(file_path) as cifp_file:
         for line in cifp_file:
             procedure_type, procedure_details_orig = line.split(":")
             procedure_details = procedure_details_orig.split(",")
-            if procedure_type == "APPCH":
-                ignore_appch_a = procedure_details[1] == "A"
-            else:
-                ignore_appch_a = False
-            if procedure_details[2] == procedure_name and not ignore_appch_a:
-                in_procedure = True
-                found_procedure_type = procedure_type
-                runway = procedure_details[3]
-                if not procedure_details[4].isspace():
-                    is_toga = ",1"
-                    # if procedure_details[9] == "L":
-                    #     is_toga = ",2"
-                    is_dme = ",0"
-                    if procedure_details[6] == "D":
-                        is_dme = ",1"
-                    procedure_waypoints.append(procedure_details[4] + is_toga + is_dme)
-
-            if procedure_details[2] != procedure_name and in_procedure:
-                in_procedure = False
 
             if procedure_type == "RWY":
                 runway_name = procedure_details[0].strip()
@@ -183,8 +191,48 @@ def parse_procedure(procedure_name: str, icao_code: str):
                     latitude=dms2deg(runway_coords[0]),
                     longitude=dms2deg(runway_coords[1]),
                 )
+                continue
 
-    return procedure_waypoints, runway, runways, found_procedure_type
+            if procedure_details[2] != procedure_name:
+                continue
+            # Route type A rows are the feeder transitions, not the approach itself
+            if procedure_type == "APPCH" and procedure_details[1] == "A":
+                continue
+
+            found_procedure_type = procedure_type
+            transition = procedure_details[3].strip()
+            if transition in complete:
+                continue
+
+            legs = transitions.setdefault(transition, [])
+            # Legs such as VI fly a heading rather than to a fix, so plot nothing.
+            # Successive legs can share a fix, which would stack markers on it.
+            fix = procedure_details[4].strip()
+            if fix and (not legs or legs[-1].split(",")[0] != fix):
+                is_dme = "1" if procedure_details[6] == "D" else "0"
+                legs.append(f"{fix},1,{is_dme}")
+
+            # An approach ends at the missed approach point, flagged in the
+            # waypoint description code; the legs after it fly the miss
+            description = procedure_details[8]
+            if procedure_type == "APPCH" and description[3:4] == "M":
+                complete.add(transition)
+
+    return transitions, runways, found_procedure_type
+
+
+def select_transition(transitions: dict, plan_runway: str = None):
+    """Pick the legs flown from plan_runway, dropping the other runways' routes."""
+    if plan_runway:
+        for transition, legs in transitions.items():
+            if runway_matches(transition, plan_runway):
+                return transition, legs
+    # Approaches hold their legs under a blank transition identifier
+    if "" in transitions:
+        return "", transitions[""]
+    if len(transitions) == 1:
+        return next(iter(transitions.items()))
+    return None, []
 
 
 class CIFP:
@@ -207,19 +255,23 @@ class CIFP:
     async def get_procedure(
         self, procedure_name: str, icao_code: str, plan_runway: str = None
     ):
-        procedure_key = f"{procedure_name}-{icao_code}"
+        procedure_key = f"{procedure_name}-{icao_code}-{plan_runway}"
         if procedure_key in self._procedure_cache:
             return self._procedure_cache[procedure_key]
 
-        procedure_waypoints, runway, runways, found_procedure_type = (
-            await run.cpu_bound(parse_procedure, procedure_name, icao_code)
+        transitions, runways, found_procedure_type = await run.cpu_bound(
+            parse_procedure, procedure_name, icao_code
         )
         self._runways_cache[icao_code] = runways
 
-        waypoints = []
-        if plan_runway is not None:
-            waypoints.append(runways.get(plan_runway, None))
+        runway, procedure_waypoints = select_transition(transitions, plan_runway)
+        if runway is None:
+            logger.warning(
+                f"No {procedure_name} legs for {icao_code} {plan_runway}, "
+                f"have {sorted(transitions)}"
+            )
 
+        waypoints = []
         for waypoint in procedure_waypoints:
             wpt = await self.get_waypoint(waypoint, icao_code)
             if not wpt:
@@ -229,6 +281,15 @@ class CIFP:
                 logger.warning(f"Could not lookup waypoint {waypoint} {icao_code}")
                 continue
             waypoints.append(wpt)
+
+        # A SID starts at the runway threshold, an arrival procedure ends there
+        for runway_name, threshold in runways.items():
+            if plan_runway and runway_matches(runway_name, plan_runway):
+                if found_procedure_type == "SID":
+                    waypoints.insert(0, threshold)
+                else:
+                    waypoints.append(threshold)
+                break
 
         proc = Procedure(
             name=procedure_name,
@@ -301,12 +362,12 @@ class FMS:
                     wpt = line.split(" ")
                     fms["waypoints"].append(
                         Waypoint(
-                            type_id=wpt[0],
+                            type_id=int(wpt[0]),
                             name=wpt[1],
                             type=wpt[2],
-                            altitude=wpt[3],
-                            latitude=wpt[4],
-                            longitude=wpt[5],
+                            altitude=float(wpt[3]),
+                            latitude=float(wpt[4]),
+                            longitude=float(wpt[5]),
                         )
                     )
                 else:
