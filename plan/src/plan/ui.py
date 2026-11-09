@@ -33,6 +33,18 @@ ICON_PLANE = (
 )
 
 
+def weather_text(metar) -> str:
+    """Format a METAR for display; temp and press are absent from some reports."""
+    parts = [
+        metar.temp.string("C") if metar.temp else None,
+        metar.wind(),
+        metar.visibility(),
+        metar.press.string("mb") if metar.press else None,
+        metar.present_weather(),
+    ]
+    return ", ".join(part for part in parts if part)
+
+
 @contextmanager
 def disable(button: ui.button):
     button.disable()
@@ -408,7 +420,7 @@ class UI:
             self.dep_time.set_text(
                 f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
-            self.dep_weather.content = f"{self._plan.weather_dep.temp.string('C')}, {self._plan.weather_dep.wind()}, {self._plan.weather_dep.visibility()} {self._plan.weather_dep.press.string("mb")} {self._plan.weather_dep.present_weather()}"
+            self.dep_weather.content = weather_text(self._plan.weather_dep)
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
@@ -416,7 +428,7 @@ class UI:
             self.des_time.set_text(
                 f"{self._plan.current.ADES} {self._plan.weather_des.time:%H:%M}"
             )
-            self.des_weather.content = f"{self._plan.weather_des.temp.string('C')}, {self._plan.weather_des.wind()}, {self._plan.weather_des.visibility()} {self._plan.weather_des.press.string("mb")} {self._plan.weather_des.present_weather()}"
+            self.des_weather.content = weather_text(self._plan.weather_des)
         else:
             self.des_time.set_text(f"{self._plan.current.ADES} --:--")
             self.des_weather.content = "N/A"
