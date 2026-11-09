@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 import math
+from types import SimpleNamespace
 
 from .airframe import a20n, Airframe
 
@@ -267,7 +269,7 @@ class FlexMath:
 
     @staticmethod
     def calculateFlapEffect(flaps: str | int, a: Airframe):
-        return a.Takeoff.FlapsMultiplier[flaps - 1]
+        return a.Takeoff.FlapsMultiplier[int(flaps) - 1]
 
     # ported to js from https://stackoverflow.com/questions/7437660/
     @staticmethod
@@ -396,13 +398,13 @@ class FlexMath:
 
     @staticmethod
     def AltitudeCorrection(params: any, densityAltitude: float):
-        MLAND = params.airframe.MLW
-        WeightReferenceISA2 = params.airframe.Landing.WeightReferenceISA[1]
-        AltitudeCorrectionTable = params.airframe.Landing.AltitudeCorrectionTable
-        StopDistanceDiffs = params.airframe.Landing.StopDistanceDiffs
+        MLAND = params.airframe.mlw
+        WeightReferenceISA2 = params.airframe.landing.WeightReferenceISA[1]
+        AltitudeCorrectionTable = params.airframe.landing.AltitudeCorrectionTable
+        StopDistanceDiffs = params.airframe.landing.StopDistanceDiffs
 
         def DAADJ(DA: float, BP: float):
-            (DA / 2000 / 100) * (BP / 100)
+            return (DA / 2000 / 100) * (BP / 100)
 
         densityCorrectionsTable = [
             (
@@ -460,15 +462,15 @@ class FlexMath:
 
     @staticmethod
     def calibratedDistance(params: any, densityAltitude: float):
-        DistanceRequiredISATable = params.airframe.Landing.DistanceReferenceISA
-        WeightReferenceISATable = params.airframe.Landing.WeightReferenceISA
+        DistanceRequiredISATable = params.airframe.landing.DistanceReferenceISA
+        WeightReferenceISATable = params.airframe.landing.WeightReferenceISA
         diffsTable = [
             (DistanceRequiredISATable[1] - DistanceRequiredISATable[0])
             / (WeightReferenceISATable[1] - WeightReferenceISATable[0]),
             (DistanceRequiredISATable[2] - DistanceRequiredISATable[1])
             / (WeightReferenceISATable[2] - WeightReferenceISATable[1]),
         ]
-        diffsTable[2] = diffsTable[1] * 1.5
+        diffsTable.append(diffsTable[1] * 1.5)
 
         StopDistanceRef1 = (
             diffsTable[0] * (params.tow - WeightReferenceISATable[0])
@@ -526,20 +528,19 @@ class FlexMath:
             math.cos((windHeading - runwayHeading * 10) * (math.pi / 180)) * windKts
         )
 
-        params = {
-            "altitude": runwayAltitude,
-            "oat": oat,
-            "baro": FlexMath.parseQNH(baro, False),
-            "runwayCondition": runwayCondition,
-            "headwind": headwind,
-            "flaps": flaps,
-            "tow": tow,
-            "speed": 0,
-            "airframe": airframe,
-        }
+        params = SimpleNamespace(
+            altitude=runwayAltitude,
+            oat=oat,
+            baro=FlexMath.parseQNH(baro, False),
+            runwayCondition=runwayCondition,
+            headwind=headwind,
+            flaps=flaps,
+            tow=tow,
+            speed=0,
+            airframe=airframe,
+        )
         V1Candidate = -1
-        for i in range(VR, 100, -1):
-            # for (let i = VR; i >= 100; i--) {
+        for i in range(VR, 99, -1):
             params.speed = i
             distance = FlexMath.calculateStopDistanceReq(params)
             distance /= 3
@@ -564,7 +565,7 @@ class FlexMath:
 
     @staticmethod
     def calculateStopDistanceReq(params: any):
-        flapMultiplier = params.airframe.Landing.FlapsMultiplier
+        flapMultiplier = params.airframe.landing.FlapsMultiplier
         ISAIncrease = params.airframe.ISAIncrease
         altitude = params.altitude
         oat = params.oat
@@ -605,7 +606,7 @@ class FlexMath:
 
     @staticmethod
     def calculateRCAM(distance: float, runwayCondition: float, params: any):
-        runwayConditions = params.airframe.Landing.RunwayConditionMultiplier
+        runwayConditions = params.airframe.landing.RunwayConditionMultiplier
         # dry/wet
         return distance * runwayConditions[runwayCondition]
 
@@ -617,6 +618,7 @@ class FlexMath:
     def round5down(x: float):
         return math.floor(x / 5) * 5
 
+    @staticmethod
     def round10down(x: float):
         return math.floor(x / 10) * 10
 
@@ -626,7 +628,7 @@ class FlexMath:
 
     @staticmethod
     def altcorr(a: float):
-        return math.abs(a * 2e-4)
+        return abs(a * 2e-4)
 
     @staticmethod
     def f2corr(f: float, a: float):
@@ -634,9 +636,10 @@ class FlexMath:
 
     @staticmethod
     def v2Speed(w: float, f: float, a: any, airframe: Airframe):
-        v2 = airframe.VSpeeds[str(f)][FlexMath.round5down(w)]
+        table = airframe.VSpeeds[str(f)]
+        v2 = table.get(FlexMath.round5down(w))
         if v2 is None:
-            v2 = airframe.VSpeeds[str(f)][FlexMath.round10down(w)]
+            v2 = table[FlexMath.round10down(w)]
 
         v2 += FlexMath.f2corr(f, a)
 
@@ -877,14 +880,17 @@ class FlexMath:
         )
 
 
-def calculate_trim(cg: float):
+def calculate_trim(cg: float) -> tuple[str, bool]:
+    """Return the THS trim and whether the CG is outside the trim chart"""
     error = cg < a20n.trim.MinCG or cg > a20n.trim.MaxCG
     magic1 = (a20n.trim.MinTrim - a20n.trim.MaxTrim) / (
         a20n.trim.MaxCG - a20n.trim.MinCG
     )
     magic2 = a20n.trim.MaxTrim - a20n.trim.MinCG * magic1
     CalculatedTrim = magic1 * cg + magic2
-    return f"{round(abs(CalculatedTrim), 1)}{'UP' if CalculatedTrim > 0 else 'DN'}"
+    # Rounds exact halves up, as JS toFixed does
+    trim = Decimal(abs(CalculatedTrim)).quantize(Decimal("0.1"), ROUND_HALF_UP)
+    return f"{trim}{'DN' if CalculatedTrim < 0 else 'UP'}", error
 
 
 if __name__ == "__main__":
@@ -916,7 +922,6 @@ if __name__ == "__main__":
         settings.isMeters,
         settings.isKG,
         a20n,
-        settings.runwayCondition,
     )
 
     print(settings.availRunway / 3.28084, ret, v_speeds)

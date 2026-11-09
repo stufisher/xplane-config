@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from contextlib import contextmanager
 import logging
 import os
@@ -12,6 +13,7 @@ from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
+from .to.view import takeoff_svg
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -115,218 +117,224 @@ class UI:
         self._ready = Event[str]()
         self._ready.subscribe(self._init_cursor)
 
-    async def main(self):
+    async def startup(self):
         await self._plan._init()
-        app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
+
+    def page(self):
         ui.page_title("X-Plane")
-
-        @ui.page("/")
-        def page():
-            if 1:
-                dark = ui.dark_mode()
-                dark.enable()
-                ui.add_css(
-                    ".leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution, .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }"
-                )
-
+        if 1:
+            dark = ui.dark_mode()
+            dark.enable()
             ui.add_css(
-                """
-                @font-face{
-                    font-family: "DSEG7";
-                    src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
-                    font-weight: normal;
-                    font-style: normal;
-                }
-                .nicegui-markdown p {
-                    margin-top: 0;
-                }
-                .leaflet-tooltip.leaflet-tooltip-right {
-                    background: none;
-                    border: none;
-                    padding: 0 6px;
-                    color: pink;
-                    margin-left: 0;
-                }
-
-                .leaflet-tooltip-right:before {
-                    border: none !important;
-                }
-            """
+                ".leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-control-attribution, .leaflet-layer { filter: invert(100%) hue-rotate(180deg) brightness(90%) contrast(90%); }"
             )
-            ui.query(".nicegui-content").classes("flex-row")
 
-            with Row():
-                with Col():
-                    with Card():
-                        with Row().classes("flex-nowrap"):
-                            self._plan_select = (
-                                ui.select(
-                                    [],
-                                    on_change=lambda e: self.select_plan(e.value),
-                                    with_input=True,
-                                )
-                                .classes("flex-1 w-50")
-                                .bind_value(self._plan_select_value)
-                            )
-                            self._spinner = ui.spinner(size="lg")
-                            self._spinner.set_visibility(False)
-                            with ui.button_group():
-                                plan_load_runway_button = ui.button(
-                                    icon="add_road",
-                                    on_click=self.load_runway_data,
-                                )
-                                plan_load_runway_button.tooltip("Load runway data")
-                                plan_refresh_button = ui.button(
-                                    icon="refresh",
-                                    on_click=lambda e: self.update_plans(),
-                                )
-                                plan_refresh_button.tooltip("Refresh plans")
-                        with Row().classes("flex-nowrap"):
-                            self._flight_no = ui.input(
-                                "Flight No.", value="A123", placeholder="Flight No."
-                            )
-                            self._code_code = ui.input(
-                                "Cost", value="20", placeholder="Cost Code"
-                            )
-                            self._cruise_alt = ui.input(
-                                "Cruise Alt.",
-                                value="",
-                                placeholder="Cruise Alt",
-                                prefix="FL",
-                            )
-                            self._to_flaps = ui.select(
-                                {1: "1+F", 2: "2", 3: "3"},
-                                label="Flaps",
-                                value=1,
-                                on_change=self.update_mcdu_perf,
-                            )
-                            with ui.button_group():
-                                self._runway_condition = ToggleButton(
-                                    icon="umbrella", on_click=self.update_mcdu_perf
-                                )
-                                self._runway_condition.tooltip("Runway Wet")
-                                self._packs = ToggleButton(
-                                    icon="hvac",
-                                    on_click=self.update_mcdu_perf,
-                                    state=True,
-                                )
-                                self._packs.tooltip("Packs")
-                                self._anti_ice = ToggleButton(
-                                    icon="ac_unit", on_click=self.update_mcdu_perf
-                                )
-                                self._anti_ice.tooltip("Anti Ice")
-                    with Card(grow=True):
-                        with Row():
-                            self._time_label = (
-                                ui.label("--:--:--")
-                                .style("font-family: DSEG7; font-size: 1.5rem")
-                                .classes("flex-1")
-                            )
-                            with ui.button_group():
-                                restore_popups_button = ui.button(
-                                    icon="window",
-                                    on_click=self.restore_popups,
-                                )
-                                restore_popups_button.tooltip("Restore popups")
-                                self._map_click_to_scratchpad = ToggleButton(
-                                    icon="add_location"
-                                )
-                                self._map_click_to_scratchpad.tooltip(
-                                    "Enable map click to scratchpad"
-                                )
-                                clear_scratchpad = ui.button(
-                                    icon="backspace",
-                                    on_click=lambda: self._plan._rest.clear_scratchpad(),
-                                )
-                                clear_scratchpad.tooltip("Clear scratchpad")
-                                self._map_center = ToggleButton(
-                                    icon="my_location",
-                                    state=True,
-                                    on_click=lambda: self.update_location(),
-                                )
-                                self._map_center.tooltip("Center map on plane location")
-                        with Row():
-                            self._plan_detail = (
-                                ui.markdown("")
-                                .classes("flex-1")
-                                .style("font-size: 1rem;")
-                            )
-                            with ui.button_group():
-                                mcdu_init_button = ui.button(
-                                    icon="computer",
-                                    on_click=lambda e: self.init_mcdu(e.sender),
-                                )
-                                mcdu_init_button.tooltip("Init MCDU")
-                                spawn_aircaft_button = ui.button(
-                                    icon="add_road",
-                                    on_click=self.move_aircraft_to_runway,
-                                )
-                                spawn_aircaft_button.tooltip(
-                                    "Spawn aircraft at departure airport runway"
-                                )
-                                spawn_aircaft_gate_button = ui.button(
-                                    icon="luggage",
-                                    on_click=self.move_aircraft_to_gate,
-                                )
-                                spawn_aircaft_gate_button.tooltip(
-                                    "Spawn aircraft at departure airport gate"
-                                )
-                        with Row():
-                            self._route = ui.input("Route", value="").classes("flex-1")
-                            copy_route_button = ui.button(
-                                icon="content_paste",
-                                on_click=lambda: ui.clipboard.write(self._route.value),
-                            )
-                            copy_route_button.tooltip("Copy route to clipboard")
-                        with Row():
-                            with Col(gap=0):
-                                with Row():
-                                    ui.icon("flight_takeoff").classes("text-2xl")
-                                    self.dep_time = ui.label("--:--")
-                                self.dep_weather = ui.markdown("-4c mist 1016mb")
+        ui.add_css(
+            """
+            @font-face{
+                font-family: "DSEG7";
+                src: url('/assets/DSEG7ClassicMini-Regular.ttf') format('truetype');
+                font-weight: normal;
+                font-style: normal;
+            }
+            .nicegui-markdown p {
+                margin-top: 0;
+            }
+            .leaflet-tooltip.leaflet-tooltip-right {
+                background: none;
+                border: none;
+                padding: 0 6px;
+                color: pink;
+                margin-left: 0;
+            }
 
-                            with Col(gap=0):
-                                with Row():
-                                    ui.icon("flight_land").classes("text-2xl")
-                                    self.des_time = ui.label("--:--")
-                                self.des_weather = ui.markdown("6c hail 999mb")
+            .leaflet-tooltip-right:before {
+                border: none !important;
+            }
+        """
+        )
+        ui.query(".nicegui-content").classes("flex-row")
 
-                    with Card(grow=True):
-                        log = ui.log(max_lines=5).style("height: 80px")
-                        log_handler = LogElementHandler(log)
-                        logging.getLogger().addHandler(log_handler)
-                        ui.context.client.on_disconnect(
-                            lambda: logging.getLogger().removeHandler(log_handler)
+        with Row():
+            with Col():
+                with Card():
+                    with Row().classes("flex-nowrap"):
+                        self._plan_select = (
+                            ui.select(
+                                [],
+                                on_change=lambda e: self.select_plan(e.value),
+                                with_input=True,
+                            )
+                            .classes("flex-1 w-50")
+                            .bind_value(self._plan_select_value)
                         )
+                        self._spinner = ui.spinner(size="lg")
+                        self._spinner.set_visibility(False)
+                        with ui.button_group():
+                            plan_load_runway_button = ui.button(
+                                icon="add_road",
+                                on_click=self.load_runway_data,
+                            )
+                            plan_load_runway_button.tooltip("Load runway data")
+                            plan_refresh_button = ui.button(
+                                icon="refresh",
+                                on_click=lambda e: self.update_plans(),
+                            )
+                            plan_refresh_button.tooltip("Refresh plans")
+                    with Row().classes("flex-nowrap"):
+                        self._flight_no = ui.input(
+                            "Flight No.", value="A123", placeholder="Flight No."
+                        )
+                        self._code_code = ui.input(
+                            "Cost", value="20", placeholder="Cost Code"
+                        )
+                        self._cruise_alt = ui.input(
+                            "Cruise Alt.",
+                            value="",
+                            placeholder="Cruise Alt",
+                            prefix="FL",
+                        )
+                        self._to_flaps = ui.select(
+                            {1: "1+F", 2: "2", 3: "3"},
+                            label="Flaps",
+                            value=1,
+                            on_change=self.update_mcdu_perf,
+                        )
+                        with ui.button_group():
+                            self._runway_condition = ToggleButton(
+                                icon="umbrella", on_click=self.update_mcdu_perf
+                            )
+                            self._runway_condition.tooltip("Runway Wet")
+                            self._packs = ToggleButton(
+                                icon="hvac",
+                                on_click=self.update_mcdu_perf,
+                                state=True,
+                            )
+                            self._packs.tooltip("Packs")
+                            self._anti_ice = ToggleButton(
+                                icon="ac_unit", on_click=self.update_mcdu_perf
+                            )
+                            self._anti_ice.tooltip("Anti Ice")
+                with Card(grow=True):
+                    with Row():
+                        self._time_label = (
+                            ui.label("--:--:--")
+                            .style("font-family: DSEG7; font-size: 1.5rem")
+                            .classes("flex-1")
+                        )
+                        with ui.button_group():
+                            restore_popups_button = ui.button(
+                                icon="window",
+                                on_click=self.restore_popups,
+                            )
+                            restore_popups_button.tooltip("Restore popups")
+                            self._map_click_to_scratchpad = ToggleButton(
+                                icon="add_location"
+                            )
+                            self._map_click_to_scratchpad.tooltip(
+                                "Enable map click to scratchpad"
+                            )
+                            clear_scratchpad = ui.button(
+                                icon="backspace",
+                                on_click=lambda: self._plan._rest.clear_scratchpad(),
+                            )
+                            clear_scratchpad.tooltip("Clear scratchpad")
+                            self._map_center = ToggleButton(
+                                icon="my_location",
+                                state=True,
+                                on_click=lambda: self.update_location(),
+                            )
+                            self._map_center.tooltip("Center map on plane location")
+                    with Row():
+                        self._plan_detail = (
+                            ui.markdown("")
+                            .classes("flex-1")
+                            .style("font-size: 1rem;")
+                        )
+                        with ui.button_group():
+                            mcdu_init_button = ui.button(
+                                icon="computer",
+                                on_click=lambda e: self.init_mcdu(e.sender),
+                            )
+                            mcdu_init_button.tooltip("Init MCDU")
+                            self._takeoff_button = ui.button(
+                                icon="air", on_click=self.show_takeoff
+                            )
+                            self._takeoff_button.tooltip("Runway and wind")
+                            self._takeoff_button.disable()
+                            spawn_aircaft_button = ui.button(
+                                icon="add_road",
+                                on_click=self.move_aircraft_to_runway,
+                            )
+                            spawn_aircaft_button.tooltip(
+                                "Spawn aircraft at departure airport runway"
+                            )
+                            spawn_aircaft_gate_button = ui.button(
+                                icon="luggage",
+                                on_click=self.move_aircraft_to_gate,
+                            )
+                            spawn_aircaft_gate_button.tooltip(
+                                "Spawn aircraft at departure airport gate"
+                            )
+                    with Row():
+                        self._route = ui.input("Route", value="").classes("flex-1")
+                        copy_route_button = ui.button(
+                            icon="content_paste",
+                            on_click=lambda: ui.clipboard.write(self._route.value),
+                        )
+                        copy_route_button.tooltip("Copy route to clipboard")
+                    with Row():
+                        with Col(gap=0):
+                            with Row():
+                                ui.icon("flight_takeoff").classes("text-2xl")
+                                self.dep_time = ui.label("--:--")
+                            self.dep_weather = ui.markdown("-4c mist 1016mb")
+
+                        with Col(gap=0):
+                            with Row():
+                                ui.icon("flight_land").classes("text-2xl")
+                                self.des_time = ui.label("--:--")
+                            self.des_weather = ui.markdown("6c hail 999mb")
 
                 with Card(grow=True):
-                    loc = self._plan.location
-
-                    self._map = ui.leaflet(
-                        center=(
-                            loc.latitude if loc.latitude is not None else 0,
-                            loc.longitude if loc.longitude is not None else 0,
-                        ),
-                        additional_resources=[
-                            "https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js",
-                        ],
-                    ).classes("flex-1")
-
-                    self._aircraft_marker = self._map.marker(
-                        latlng=(
-                            loc.latitude if loc.latitude else 0,
-                            loc.longitude if loc.longitude else 0,
-                        ),
-                        options={
-                            "rotationOrigin": "center center",
-                            "rotationAngle": (
-                                (loc.psi - 45) if loc.psi is not None else 0
-                            ),
-                        },
+                    log = ui.log(max_lines=5).style("height: 80px")
+                    log_handler = LogElementHandler(log)
+                    logging.getLogger().addHandler(log_handler)
+                    ui.context.client.on_disconnect(
+                        lambda: logging.getLogger().removeHandler(log_handler)
                     )
-            self.update_plans()
-            ui.timer(10, lambda: self._background_task())
-            self._ready.emit("ready")
+
+            with Card(grow=True):
+                loc = self._plan.location
+
+                self._map = ui.leaflet(
+                    center=(
+                        loc.latitude if loc.latitude is not None else 0,
+                        loc.longitude if loc.longitude is not None else 0,
+                    ),
+                    additional_resources=[
+                        "https://unpkg.com/leaflet-rotatedmarker@0.2.0/leaflet.rotatedMarker.js",
+                    ],
+                ).classes("flex-1")
+
+                self._aircraft_marker = self._map.marker(
+                    latlng=(
+                        loc.latitude if loc.latitude else 0,
+                        loc.longitude if loc.longitude else 0,
+                    ),
+                    options={
+                        "rotationOrigin": "center center",
+                        "rotationAngle": (
+                            (loc.psi - 45) if loc.psi is not None else 0
+                        ),
+                    },
+                )
+        with ui.dialog() as self._takeoff_dialog:
+            self._takeoff_card = ui.card()
+
+        self.update_plans()
+        ui.timer(10, lambda: self._background_task())
+        self._ready.emit("ready")
 
     async def _init_cursor(self):
         await self._map.initialized()
@@ -363,6 +371,20 @@ class UI:
             anti_ice=self._anti_ice.value,
         )
         self._spinner.set_visibility(False)
+        self._takeoff_button.set_enabled(self._plan.takeoff is not None)
+
+    def show_takeoff(self):
+        takeoff = self._plan.takeoff
+        if takeoff is None:
+            return
+        # Rendered as an image so the SVG is not passed through HTML sanitising
+        svg = base64.b64encode(takeoff_svg(takeoff).encode()).decode()
+        self._takeoff_card.clear()
+        with self._takeoff_card:
+            ui.label(f"{takeoff.icao} {takeoff.runwayName}").classes("text-lg")
+            ui.image(f"data:image/svg+xml;base64,{svg}").style("width: 440px")
+            ui.button("Close", on_click=self._takeoff_dialog.close)
+        self._takeoff_dialog.open()
 
     def update_location(self):
         if not self._map_center:
@@ -498,9 +520,11 @@ def main(reload=False, show=True):
     webbrowser.register(
         "kiosk", None, webbrowser.BackgroundBrowser(cmd), preferred=True
     )
+    app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
+    app.on_startup(ui_inst.startup)
     app.on_shutdown(ui_inst.shutdown)
     try:
-        ui.run(ui_inst.main, reload=reload, show=show)
+        ui.run(ui_inst.page, reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
         logger.info("Shutdown finished")
 

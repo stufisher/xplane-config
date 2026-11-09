@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 import logging
 import math
+import mmap
 import os
+import re
 
 from nicegui import run
 
@@ -58,55 +60,72 @@ def deg2rad(deg: float):
     return deg * math.pi / 180
 
 
+# Rows that end an airport: land airport, seaplane base, heliport, end of file
+_AIRPORT_END = re.compile(rb"^(?:1|16|17|99)\b", re.M)
+
+
+def find_airport_rows(apd: mmap.mmap, icao: bytes):
+    """Return the elevation and rows of the land airport icao, or None"""
+    pos = apd.find(icao)
+    while pos != -1:
+        line_start = apd.rfind(b"\n", 0, pos) + 1
+        line_end = apd.find(b"\n", pos)
+        if line_end == -1:
+            line_end = len(apd)
+        # 1 <elevation> <deprecated> <deprecated> <icao> <name>
+        fields = apd[line_start:line_end].split()
+        if len(fields) > 4 and fields[0] == b"1" and fields[4] == icao:
+            end = _AIRPORT_END.search(apd, line_end)
+            rows = apd[line_end : end.start() if end else len(apd)]
+            return int(fields[1]), rows.decode("utf-8", "replace")
+        pos = apd.find(icao, pos + 1)
+    return None
+
+
 def parse_airport_data(icao_code: str):
     runways = {}
     gates = {}
+    with open(DEFAULT_APD_PATH, "rb") as apd_file, mmap.mmap(
+        apd_file.fileno(), 0, access=mmap.ACCESS_READ
+    ) as apd:
+        airport = find_airport_rows(apd, icao_code.encode())
+    if airport is None:
+        return runways, gates
+
+    elevation, rows = airport
     rw_idx = 0
     ramp_idx = 0
-    in_airport = False
-    with open(DEFAULT_APD_PATH) as apd_file:
-        for line in apd_file:
-            parts = line.strip().split()
-            if not parts:
-                continue
-            if parts[0] == "1":
-                if in_airport:
-                    in_airport = False
-                if parts[4] == icao_code:
-                    in_airport = True
-                    elevation = int(parts[1])
-
-            if line.startswith("100") and in_airport:
-                fields = line.strip().split()
-                header = fields[0:8]
-                rws = fields[8:]
-                rw_count = int(len(rws) / 9)
-                for rw_dir in range(rw_count):
-                    rw_fields = rws[rw_dir * 9 : rw_dir * 9 + 9]
-                    runways[rw_fields[0]] = Runway(
-                        name=rw_fields[0],
-                        rwy_idx=rw_idx,
-                        rwy_dir=rw_dir,
-                        lat=float(rw_fields[1]),
-                        lon=float(rw_fields[2]),
-                        elevation=elevation,
-                    )
-
-                rw_idx += 1
-
-            if line.startswith("1300") and in_airport:
-                gate_fields = line.strip().split()
-                gates[gate_fields[6]] = Gate(
-                    lat=gate_fields[1],
-                    lon=gate_fields[2],
-                    ramp_idx=ramp_idx,
-                    heading=gate_fields[3],
-                    location_type=gate_fields[4],
-                    aircraft_type=gate_fields[5],
-                    name=gate_fields[6],
+    for line in rows.splitlines():
+        if line.startswith("100 "):
+            fields = line.split()
+            rws = fields[8:]
+            rw_count = int(len(rws) / 9)
+            for rw_dir in range(rw_count):
+                rw_fields = rws[rw_dir * 9 : rw_dir * 9 + 9]
+                runways[rw_fields[0]] = Runway(
+                    name=rw_fields[0],
+                    rwy_idx=rw_idx,
+                    rwy_dir=rw_dir,
+                    lat=float(rw_fields[1]),
+                    lon=float(rw_fields[2]),
                     elevation=elevation,
                 )
-                ramp_idx += 1
+
+            rw_idx += 1
+
+        elif line.startswith("1300 "):
+            gate_fields = line.split()
+            gates[gate_fields[6]] = Gate(
+                lat=gate_fields[1],
+                lon=gate_fields[2],
+                ramp_idx=ramp_idx,
+                heading=gate_fields[3],
+                location_type=gate_fields[4],
+                aircraft_type=gate_fields[5],
+                name=gate_fields[6],
+                elevation=elevation,
+            )
+            ramp_idx += 1
     return runways, gates
 
 
@@ -176,8 +195,8 @@ class APT:
         delphi = phi2 - phi1
         dellam = lam2 - lam1
 
-        a = math.sin(delphi / 2) * math.sin(delphi / 2) + math.cos(phi1 / 2) * math.cos(
-            phi2 / 2
+        a = math.sin(delphi / 2) * math.sin(delphi / 2) + math.cos(phi1) * math.cos(
+            phi2
         ) * math.sin(dellam / 2) * math.sin(dellam / 2)
 
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))

@@ -8,7 +8,7 @@ from .apt import APT
 from .fms import FMS
 from .rest import REST
 from .weather import Weather
-from .to.to import TOCalculator
+from .to.to import FlexVSpeeds, TOCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ class Plan:
         self._weather = Weather()
         self._plan = None
         self._to = TOCalculator(self._rest, apt, self._weather)
+        # Latest takeoff calculation, None until PERF has been calculated
+        self.takeoff: FlexVSpeeds | None = None
 
         self._time_dref = "sim/time/zulu_time_sec,0"
         self._location_drefs = [
@@ -231,15 +233,28 @@ class Plan:
         self, to_flaps="1", runway_condition=0, packs=True, anti_ice=False
     ):
         logger.info("MCDU: Setting PERF")
-        trim = await self._to.calc_trim()
+        self.takeoff = None
+        trim, cg_out_of_range = await self._to.calc_trim()
+        if cg_out_of_range:
+            logger.error(f"TO Invalid, CG outside the trim chart (trim {trim})")
+            return
         dep_runway = self._plan.DEPRWY.replace("RW", "")
         flex_vspeeds = await self._to.calc_vspeeds_flex(
             self._plan.ADEP, dep_runway, to_flaps, runway_condition, packs, anti_ice
         )
+        if flex_vspeeds is None:
+            return
+        flex_vspeeds.trim = trim
+        self.takeoff = flex_vspeeds
         if flex_vspeeds.invalid:
-            logger.error(
-                f"TO Invalid, required runway {flex_vspeeds.requiredRunway} > {flex_vspeeds.availRunway}"
-            )
+            if flex_vspeeds.v1 == -1:
+                logger.error(
+                    "TO Invalid, no V1 of 100kts or more allows a stop on the runway even with TOGA"
+                )
+            else:
+                logger.error(
+                    f"TO Invalid, required runway {flex_vspeeds.requiredRunway}ft > {flex_vspeeds.availRunway}ft"
+                )
             return
         log_type = logger.info if flex_vspeeds.flex else logger.warning
         log_type(
