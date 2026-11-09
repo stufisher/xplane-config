@@ -6,7 +6,7 @@ import os
 import time
 import webbrowser
 
-from nicegui import ui, app, events, Event, run
+from nicegui import ui, app, events, run
 from nicegui.element import Element
 
 from .plan import Plan
@@ -31,6 +31,11 @@ ICON_DIAMOND = lambda color: (
 ICON_PLANE = (
     f"L.icon({{iconSize: [24, 24], iconUrl: 'data:image/svg+xml,{SVG_PLANE}'}})" ""
 )
+TOOLTIP_OPTIONS = {
+    "permanent": True,
+    "direction": "right",
+    "className": "leaflet-tooltip-nicegui",
+}
 
 
 def weather_text(metar) -> str:
@@ -125,9 +130,6 @@ class UI:
         self._map_center = None
         self._time_label = None
         self._plan_select_value = {}
-
-        self._ready = Event[str]()
-        self._ready.subscribe(self._init_cursor)
 
     async def startup(self):
         await self._plan._init()
@@ -329,7 +331,7 @@ class UI:
                     ],
                 ).classes("flex-1")
 
-                self._aircraft_marker = self._map.marker(
+                aircraft_marker = self._map.marker(
                     latlng=(
                         loc.latitude if loc.latitude else 0,
                         loc.longitude if loc.longitude else 0,
@@ -341,17 +343,18 @@ class UI:
                         ),
                     },
                 )
+                self._aircraft_marker = aircraft_marker
+                self._map.on("map-click", self.on_map_click)
+                # Icons and tooltips are not part of a marker's serialised state, so
+                # the map re-adds every marker as a default pin each time it
+                # initialises. Leaflet also drops layer method calls made before init,
+                # so decoration is driven by the event rather than issued at build time.
+                self._map.on("init", lambda: self._decorate_markers(aircraft_marker))
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
 
         self.update_plans()
         ui.timer(10, lambda: self._background_task())
-        self._ready.emit("ready")
-
-    async def _init_cursor(self):
-        await self._map.initialized()
-        self._map.on("map-click", self.on_map_click)
-        self._aircraft_marker.run_method(":setIcon", ICON_PLANE)
 
     def update_plans(self):
         opts = {}
@@ -360,6 +363,16 @@ class UI:
             opts[plan.file_path] = plan.departure + " -> " + plan.destination
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
+
+    def _decorate_markers(self, aircraft_marker):
+        aircraft_marker.run_method(":setIcon", ICON_PLANE)
+        for marker, icon, name in self._map_markers:
+            self._decorate_waypoint(marker, icon, name)
+
+    @staticmethod
+    def _decorate_waypoint(marker, icon, name):
+        marker.run_method(":setIcon", icon)
+        marker.run_method("bindTooltip", name, TOOLTIP_OPTIONS)
 
     async def _background_task(self):
         self.update_weather()
@@ -460,34 +473,25 @@ class UI:
 
         self._cruise_alt.value = self._plan.cruise
 
-        for marker in self._map_markers:
+        # Layer method calls are dropped until the map reports itself initialised
+        await self._map.initialized()
+
+        for marker, _, _ in self._map_markers:
             try:
                 self._map.remove_layer(marker)
             except Exception:
                 logger.debug("Could not remove existing marker")
         self._map_markers = []
 
-        route = []
         for waypoint in self._plan.current.all_waypoints:
             marker = self._map.marker(latlng=(waypoint.latitude, waypoint.longitude))
-            self._map_markers.append(marker)
-            marker.run_method(
-                ":setIcon",
-                ICON_DIAMOND(
-                    "cyan"
-                    if waypoint.type_id == 2
-                    else ("green" if waypoint.type_id == 1 else "purple")
-                ),
+            icon = ICON_DIAMOND(
+                "cyan"
+                if waypoint.type_id == 2
+                else ("green" if waypoint.type_id == 1 else "purple")
             )
-            marker.run_method(
-                "bindTooltip",
-                waypoint.name,
-                {
-                    "permanent": True,
-                    "direction": "right",
-                    "className": "leaflet-tooltip-nicegui",
-                },
-            )
+            self._map_markers.append((marker, icon, waypoint.name))
+            self._decorate_waypoint(marker, icon, waypoint.name)
 
         route = []
         for waypoint in self._plan.current.waypoints:
