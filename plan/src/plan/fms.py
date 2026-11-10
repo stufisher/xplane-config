@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import logging
+import mmap
 import os
 from typing import Optional
 
@@ -100,6 +101,31 @@ class FMSPlan:
         return [(name, waypoints) for name, waypoints in legs if waypoints]
 
 
+def find_rows(
+    path: str, ident: bytes, ident_column: int, min_columns: int, columns: tuple
+):
+    """Return the chosen columns of every row holding ident in ident_column.
+
+    These files list every fix on earth, so they are scanned as bytes rather
+    than decoded line by line.
+    """
+    rows = []
+    with open(path, "rb") as dat_file, mmap.mmap(
+        dat_file.fileno(), 0, access=mmap.ACCESS_READ
+    ) as dat:
+        pos = dat.find(ident)
+        while pos != -1:
+            line_start = dat.rfind(b"\n", 0, pos) + 1
+            line_end = dat.find(b"\n", pos)
+            if line_end == -1:
+                line_end = len(dat)
+            cols = dat[line_start:line_end].split()
+            if len(cols) >= min_columns and cols[ident_column] == ident:
+                rows.append([cols[column].decode() for column in columns])
+            pos = dat.find(ident, pos + 1)
+    return rows
+
+
 def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
     waypoint = waypoint_and_type[0]
     type_id = int(waypoint_and_type[1])
@@ -107,27 +133,15 @@ def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
 
     found_waypoints = []
     if not is_dme:
-        with open(DEFAULT_EARTH_FIX_PATH) as earth_fix_file:
-            for _ in range(3):
-                next(earth_fix_file)
-            for line in earth_fix_file:
-                cols = line.split()
-                if len(cols) < 5:
-                    continue
-                if cols[2] == waypoint:
-                    found_waypoints.append([cols[0], cols[1], cols[3]])
+        found_waypoints = find_rows(
+            DEFAULT_EARTH_FIX_PATH, waypoint.encode(), 2, 5, (0, 1, 3)
+        )
 
     # Waypoint might be a VOR/DME
     if not found_waypoints:
-        with open(DEFAULT_EARTH_NAV_PATH) as earth_nav_file:
-            for _ in range(3):
-                next(earth_nav_file)
-            for line in earth_nav_file:
-                cols = line.split()
-                if len(cols) < 10:
-                    continue
-                if cols[7] == waypoint:
-                    found_waypoints.append([cols[1], cols[2], cols[3]])
+        found_waypoints = find_rows(
+            DEFAULT_EARTH_NAV_PATH, waypoint.encode(), 7, 10, (1, 2, 3)
+        )
 
     if not found_waypoints:
         return
