@@ -130,27 +130,42 @@ def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
     waypoint = waypoint_and_type[0]
     type_id = int(waypoint_and_type[1])
     is_dme = int(waypoint_and_type[2])
+    region = waypoint_and_type[3] if len(waypoint_and_type) > 3 else ""
 
-    found_waypoints = []
+    def in_region(rows):
+        # Names repeat around the world, the ICAO region says which one is meant
+        return [row for row in rows if not region or row[3] == region]
+
+    # Rows are [lat, lon, terminal area (ENRT or airport), ICAO region]
+    fix_rows = []
     if not is_dme:
-        found_waypoints = find_rows(
-            DEFAULT_EARTH_FIX_PATH, waypoint.encode(), 2, 5, (0, 1, 3)
+        fix_rows = find_rows(
+            DEFAULT_EARTH_FIX_PATH, waypoint.encode(), 2, 5, (0, 1, 3, 4)
         )
+    found_waypoints = in_region(fix_rows)
 
     # Waypoint might be a VOR/DME
+    nav_rows = []
     if not found_waypoints:
-        found_waypoints = find_rows(
-            DEFAULT_EARTH_NAV_PATH, waypoint.encode(), 7, 10, (1, 2, 3)
+        nav_rows = find_rows(
+            DEFAULT_EARTH_NAV_PATH, waypoint.encode(), 7, 10, (1, 2, 8, 9)
         )
+        found_waypoints = in_region(nav_rows)
+
+    # Region missing from the nav data, so take whatever matched the name
+    if not found_waypoints:
+        found_waypoints = fix_rows or nav_rows
+        if found_waypoints and region:
+            logger.warning(f"No {waypoint} in region {region}, using first match")
 
     if not found_waypoints:
         return
 
     matched_waypoint = found_waypoints[0]
-    if len(found_waypoints) > 1:
-        for found_waypoint in found_waypoints:
-            if found_waypoint[2] != "ENRT" and found_waypoint[2] == icao_code:
-                matched_waypoint = found_waypoint
+    for found_waypoint in found_waypoints:
+        if found_waypoint[2] == icao_code:
+            matched_waypoint = found_waypoint
+            break
 
     return Waypoint(
         type_id=type_id,
@@ -224,7 +239,8 @@ def parse_procedure(procedure_name: str, icao_code: str):
             fix = procedure_details[4].strip()
             if fix and (not legs or legs[-1].split(",")[0] != fix):
                 is_dme = "1" if procedure_details[6] == "D" else "0"
-                legs.append(f"{fix},1,{is_dme}")
+                region = procedure_details[5].strip()
+                legs.append(f"{fix},1,{is_dme},{region}")
 
             # An approach ends at the missed approach point, flagged in the
             # waypoint description code; the legs after it fly the miss
@@ -258,7 +274,8 @@ class CIFP:
     async def get_waypoint(self, waypoint_and_type: str, icao_code: str = None):
         waypoint_and_type = waypoint_and_type.split(",")
         waypoint = waypoint_and_type[0]
-        waypoint_key = f"{waypoint}-{icao_code}"
+        region = waypoint_and_type[3] if len(waypoint_and_type) > 3 else ""
+        waypoint_key = f"{waypoint}-{region}-{icao_code}"
         if waypoint_key in self._waypoint_cache:
             return self._waypoint_cache[waypoint_key]
 
