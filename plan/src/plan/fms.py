@@ -92,12 +92,26 @@ class FMSPlan:
     @property
     def segments(self) -> list[tuple[str, list[Waypoint]]]:
         """Waypoints grouped by leg, ordered from departure to arrival."""
-        legs = [
-            ("SID", self.sid_proc.waypoints if self.sid_proc else []),
-            ("ENRT", self.waypoints),
-            ("STAR", self.star_proc.waypoints if self.star_proc else []),
-            ("APP", self.app_proc.waypoints if self.app_proc else []),
-        ]
+        sid = self.sid_proc.waypoints if self.sid_proc else []
+        star = self.star_proc.waypoints if self.star_proc else []
+        app = self.app_proc.waypoints if self.app_proc else []
+
+        # The plan lists the airports themselves at either end. Where a procedure
+        # is flown the enroute leg instead runs from the SID's last fix to the
+        # STAR's first, so the legs join up.
+        enroute = list(self.waypoints)
+        if sid:
+            if enroute and enroute[0].name == self.ADEP:
+                enroute.pop(0)
+            if not enroute or enroute[0].name != sid[-1].name:
+                enroute.insert(0, sid[-1])
+        if star:
+            if enroute and enroute[-1].name == self.ADES:
+                enroute.pop()
+            if not enroute or enroute[-1].name != star[0].name:
+                enroute.append(star[0])
+
+        legs = [("SID", sid), ("ENRT", enroute), ("STAR", star), ("APP", app)]
         return [(name, waypoints) for name, waypoints in legs if waypoints]
 
 
