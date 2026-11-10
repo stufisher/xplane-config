@@ -352,11 +352,11 @@ class UI:
                 )
                 self._aircraft_marker = aircraft_marker
                 self._map.on("map-click", self.on_map_click)
-                # Icons and tooltips are not part of a marker's serialised state, so
-                # the map re-adds every marker as a default pin each time it
-                # initialises. Leaflet also drops layer method calls made before init,
-                # so decoration is driven by the event rather than issued at build time.
-                self._map.on("init", lambda: self._decorate_markers(aircraft_marker))
+                # The icon is not part of the marker's serialised state, so the map
+                # re-adds it as a default pin every time it initialises
+                self._map.on(
+                    "init", lambda: aircraft_marker.run_method(":setIcon", ICON_PLANE)
+                )
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
 
@@ -370,16 +370,6 @@ class UI:
             opts[plan.file_path] = plan.departure + " -> " + plan.destination
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
-
-    def _decorate_markers(self, aircraft_marker):
-        aircraft_marker.run_method(":setIcon", ICON_PLANE)
-        for marker, icon, name in self._map_markers:
-            self._decorate_waypoint(marker, icon, name)
-
-    @staticmethod
-    def _decorate_waypoint(marker, icon, name):
-        marker.run_method(":setIcon", icon)
-        marker.run_method("bindTooltip", name, TOOLTIP_OPTIONS)
 
     async def _background_task(self):
         self.update_weather()
@@ -468,9 +458,6 @@ class UI:
         await self.select_plan(self._plan_select_value["value"], True)
 
     async def select_plan(self, value, load_runway: bool = False):
-        # Bound now so a page rebuilt mid-load cannot leave the awaits below
-        # waiting on a map belonging to some other client
-        leaflet = self._map
         self._spinner.set_visibility(True)
         await self._plan.load_plan(value, load_runway)
         self._spinner.set_visibility(False)
@@ -483,12 +470,9 @@ class UI:
 
         self._cruise_alt.value = self._plan.cruise
 
-        # Layer method calls are dropped until the map reports itself initialised
-        await leaflet.initialized()
-
-        for layer in [marker for marker, _, _ in self._map_markers] + self._map_lines:
+        for layer in self._map_markers + self._map_lines:
             try:
-                leaflet.remove_layer(layer)
+                self._map.remove_layer(layer)
             except Exception:
                 logger.debug("Could not remove existing layer")
         self._map_markers = []
@@ -504,12 +488,15 @@ class UI:
                 if waypoint.name in plotted:
                     continue
                 plotted.add(waypoint.name)
-                marker = leaflet.marker(latlng=(waypoint.latitude, waypoint.longitude))
-                self._map_markers.append((marker, icon, waypoint.name))
-                self._decorate_waypoint(marker, icon, waypoint.name)
+                marker = self._map.marker(
+                    latlng=(waypoint.latitude, waypoint.longitude)
+                )
+                self._map_markers.append(marker)
+                marker.run_method(":setIcon", icon)
+                marker.run_method("bindTooltip", waypoint.name, TOOLTIP_OPTIONS)
             if len(waypoints) > 1:
                 self._map_lines.append(
-                    leaflet.generic_layer(
+                    self._map.generic_layer(
                         name="polyline",
                         args=[
                             [(w.latitude, w.longitude) for w in waypoints],
@@ -564,12 +551,8 @@ def main(reload=False, show=True):
     app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
     app.on_startup(ui_inst.startup)
     app.on_shutdown(ui_inst.shutdown)
-    # Routed rather than passed to ui.run as the root, which is served from the
-    # 404 handler and so rebuilds the whole page for any unmatched request --
-    # Chrome probes /.well-known/appspecific/com.chrome.devtools.json
-    ui.page("/")(ui_inst.page)
     try:
-        ui.run(reload=reload, show=show)
+        ui.run(ui_inst.page, reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
         logger.info("Shutdown finished")
 
