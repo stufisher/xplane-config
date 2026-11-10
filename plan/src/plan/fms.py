@@ -71,9 +71,19 @@ class FMSPlan:
         if self.SID and self.sid_proc is None:
             self.sid_proc = await cifp.get_procedure(self.SID, self.ADEP, self.DEPRWY)
         if self.STAR and self.star_proc is None:
-            self.star_proc = await cifp.get_procedure(self.STAR, self.ADES, self.DESRWY)
+            # With an approach loaded it is the approach that reaches the runway
+            self.star_proc = await cifp.get_procedure(
+                self.STAR, self.ADES, self.DESRWY, add_threshold=not self.APP
+            )
         if self.APP and self.app_proc is None:
-            self.app_proc = await cifp.get_procedure(self.APP, self.ADES)
+            star_end = (
+                self.star_proc.waypoints[-1].name
+                if self.star_proc and self.star_proc.waypoints
+                else None
+            )
+            self.app_proc = await cifp.get_procedure(
+                self.APP, self.ADES, entry_fix=star_end
+            )
 
         if load_runway:
             logger.info("Loading runway data")
@@ -238,9 +248,6 @@ def parse_procedure(procedure_name: str, icao_code: str):
 
             if procedure_details[2] != procedure_name:
                 continue
-            # Route type A rows are the feeder transitions, not the approach itself
-            if procedure_type == "APPCH" and procedure_details[1] == "A":
-                continue
 
             found_procedure_type = procedure_type
             transition = procedure_details[3].strip()
@@ -298,9 +305,16 @@ class CIFP:
         return wpt
 
     async def get_procedure(
-        self, procedure_name: str, icao_code: str, plan_runway: str = None
+        self,
+        procedure_name: str,
+        icao_code: str,
+        plan_runway: str = None,
+        add_threshold: bool = True,
+        entry_fix: str = None,
     ):
-        procedure_key = f"{procedure_name}-{icao_code}-{plan_runway}"
+        procedure_key = (
+            f"{procedure_name}-{icao_code}-{plan_runway}-{add_threshold}-{entry_fix}"
+        )
         if procedure_key in self._procedure_cache:
             return self._procedure_cache[procedure_key]
 
@@ -316,6 +330,21 @@ class CIFP:
                 f"have {sorted(transitions)}"
             )
 
+        # An approach is joined from the arrival by the feeder transition that
+        # starts where the arrival ends
+        if entry_fix:
+            for transition, legs in transitions.items():
+                if transition != runway and legs and legs[0].split(",")[0] == entry_fix:
+                    feeder = list(legs)
+                    if (
+                        procedure_waypoints
+                        and feeder[-1].split(",")[0]
+                        == procedure_waypoints[0].split(",")[0]
+                    ):
+                        feeder.pop()
+                    procedure_waypoints = feeder + list(procedure_waypoints)
+                    break
+
         waypoints = []
         for waypoint in procedure_waypoints:
             # A runway fix is this airport's own threshold; looked up by name it
@@ -330,7 +359,11 @@ class CIFP:
 
         # A SID starts at the runway threshold, an arrival procedure ends there
         for runway_name, threshold in runways.items():
-            if plan_runway and runway_matches(runway_name, plan_runway):
+            if (
+                add_threshold
+                and plan_runway
+                and runway_matches(runway_name, plan_runway)
+            ):
                 if found_procedure_type == "SID":
                     waypoints.insert(0, threshold)
                 else:
