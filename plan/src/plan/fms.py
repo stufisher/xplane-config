@@ -318,10 +318,11 @@ class CIFP:
 
         waypoints = []
         for waypoint in procedure_waypoints:
-            wpt = await self.get_waypoint(waypoint, icao_code)
+            # A runway fix is this airport's own threshold; looked up by name it
+            # can match a same-named runway at another airport
+            wpt = runways.get(waypoint.split(",")[0])
             if not wpt:
-                waypoint_and_type = waypoint.split(",")
-                wpt = runways.get(waypoint_and_type[0], None)
+                wpt = await self.get_waypoint(waypoint, icao_code)
             if not wpt:
                 logger.warning(f"Could not lookup waypoint {waypoint} {icao_code}")
                 continue
