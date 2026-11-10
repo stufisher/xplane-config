@@ -468,6 +468,9 @@ class UI:
         await self.select_plan(self._plan_select_value["value"], True)
 
     async def select_plan(self, value, load_runway: bool = False):
+        # Bound now so a page rebuilt mid-load cannot leave the awaits below
+        # waiting on a map belonging to some other client
+        leaflet = self._map
         self._spinner.set_visibility(True)
         await self._plan.load_plan(value, load_runway)
         self._spinner.set_visibility(False)
@@ -481,11 +484,11 @@ class UI:
         self._cruise_alt.value = self._plan.cruise
 
         # Layer method calls are dropped until the map reports itself initialised
-        await self._map.initialized()
+        await leaflet.initialized()
 
         for layer in [marker for marker, _, _ in self._map_markers] + self._map_lines:
             try:
-                self._map.remove_layer(layer)
+                leaflet.remove_layer(layer)
             except Exception:
                 logger.debug("Could not remove existing layer")
         self._map_markers = []
@@ -501,14 +504,12 @@ class UI:
                 if waypoint.name in plotted:
                     continue
                 plotted.add(waypoint.name)
-                marker = self._map.marker(
-                    latlng=(waypoint.latitude, waypoint.longitude)
-                )
+                marker = leaflet.marker(latlng=(waypoint.latitude, waypoint.longitude))
                 self._map_markers.append((marker, icon, waypoint.name))
                 self._decorate_waypoint(marker, icon, waypoint.name)
             if len(waypoints) > 1:
                 self._map_lines.append(
-                    self._map.generic_layer(
+                    leaflet.generic_layer(
                         name="polyline",
                         args=[
                             [(w.latitude, w.longitude) for w in waypoints],
@@ -563,8 +564,12 @@ def main(reload=False, show=True):
     app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
     app.on_startup(ui_inst.startup)
     app.on_shutdown(ui_inst.shutdown)
+    # Routed rather than passed to ui.run as the root, which is served from the
+    # 404 handler and so rebuilds the whole page for any unmatched request --
+    # Chrome probes /.well-known/appspecific/com.chrome.devtools.json
+    ui.page("/")(ui_inst.page)
     try:
-        ui.run(ui_inst.page, reload=reload, show=show)
+        ui.run(reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
         logger.info("Shutdown finished")
 
