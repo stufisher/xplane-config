@@ -271,9 +271,14 @@ class Plan:
             await self._rest.write_scratchpad(str(flex_vspeeds.flex))
             await self._rest.press_button("4R")
 
-        await self._rest.set_dataref("toliss_airbus/performance/VR", flex_vspeeds.vr)
-        await self._rest.set_dataref("toliss_airbus/performance/V1", flex_vspeeds.v1)
-        await self._rest.set_dataref("toliss_airbus/performance/V2", flex_vspeeds.v2)
+        # V1, VR and V2 sit on the left of the PERF TAKE OFF page
+        for lsk, speed in (
+            ("1L", flex_vspeeds.v1),
+            ("2L", flex_vspeeds.vr),
+            ("3L", flex_vspeeds.v2),
+        ):
+            await self._rest.write_scratchpad(str(speed))
+            await self._rest.press_button(lsk)
 
     async def mcdu_fpln(self):
         await self._rest.press_button("FPLN")
