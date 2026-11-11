@@ -7,11 +7,9 @@ import re
 
 from nicegui import run
 
-logger = logging.getLogger(__name__)
+from .xplane import XPlanePaths
 
-DEFAULT_APD_PATH = os.path.expanduser(
-    "~/X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat"
-)
+logger = logging.getLogger(__name__)
 
 TEST_DATA = """
 1    21 1 0 KBFI Boeing Field King Co Intl
@@ -82,10 +80,10 @@ def find_airport_rows(apd: mmap.mmap, icao: bytes):
     return None
 
 
-def parse_airport_data(icao_code: str):
+def parse_airport_data(apt_path: str, icao_code: str):
     runways = {}
     gates = {}
-    with open(DEFAULT_APD_PATH, "rb") as apd_file, mmap.mmap(
+    with open(apt_path, "rb") as apd_file, mmap.mmap(
         apd_file.fileno(), 0, access=mmap.ACCESS_READ
     ) as apd:
         airport = find_airport_rows(apd, icao_code.encode())
@@ -130,12 +128,15 @@ def parse_airport_data(icao_code: str):
 
 
 class APT:
-    def __init__(self):
+    def __init__(self, paths: XPlanePaths = XPlanePaths()):
+        self._apt_path = paths.apt
         self._airport_runways: dict[str, dict[str, Runway]] = {}
         self._airport_ramps: dict[str, dict[str, Gate]] = {}
 
     async def _parse(self, icao_code: str):
-        runways, gates = await run.cpu_bound(parse_airport_data, icao_code)
+        runways, gates = await run.cpu_bound(
+            parse_airport_data, self._apt_path, icao_code
+        )
         self._airport_runways[icao_code] = runways
         self._airport_ramps[icao_code] = gates
 

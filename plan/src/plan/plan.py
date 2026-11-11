@@ -8,6 +8,7 @@ from .apt import APT
 from .fms import FMS
 from .rest import REST
 from .weather import Weather
+from .xplane import XPlanePaths
 from .to.to import FlexVSpeeds, TOCalculator
 
 logger = logging.getLogger(__name__)
@@ -25,11 +26,15 @@ class Location:
 
 class Plan:
     def __init__(
-        self, apt: APT, update_time: callable = None, update_location: callable = None
+        self,
+        apt: APT,
+        update_time: callable = None,
+        update_location: callable = None,
+        paths: XPlanePaths = XPlanePaths(),
     ):
-        self._fms = FMS(apt)
+        self._fms = FMS(apt, paths)
         self._rest = REST(on_drefs_changed=self.on_drefs_changed)
-        self._weather = Weather()
+        self._weather = Weather(paths.real_weather)
         self._plan = None
         self._to = TOCalculator(self._rest, apt, self._weather)
         # Latest takeoff calculation, None until PERF has been calculated

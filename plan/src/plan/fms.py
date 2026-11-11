@@ -8,15 +8,7 @@ from airports.airport_data import get_airport_by_icao
 from nicegui import run
 
 from .apt import APT
-
-DEFAULT_FMS_PATH = os.path.expanduser("~/X-Plane 12/Output/FMS Plans")
-DEFAULT_CIFP_PATH = os.path.expanduser("~/X-Plane 12/Resources/default data/CIFP")
-DEFAULT_EARTH_FIX_PATH = os.path.expanduser(
-    "~/X-Plane 12/Resources/default data/earth_fix.dat"
-)
-DEFAULT_EARTH_NAV_PATH = os.path.expanduser(
-    "~/X-Plane 12/Resources/default data/earth_nav.dat"
-)
+from .xplane import XPlanePaths
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +142,12 @@ def find_rows(
     return rows
 
 
-def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
+def get_waypoint(
+    waypoint_and_type: list[str],
+    icao_code: str = None,
+    fix_path: str = XPlanePaths().earth_fix,
+    nav_path: str = XPlanePaths().earth_nav,
+):
     waypoint = waypoint_and_type[0]
     type_id = int(waypoint_and_type[1])
     is_dme = int(waypoint_and_type[2])
@@ -163,17 +160,13 @@ def get_waypoint(waypoint_and_type: list[str], icao_code: str = None):
     # Rows are [lat, lon, terminal area (ENRT or airport), ICAO region]
     fix_rows = []
     if not is_dme:
-        fix_rows = find_rows(
-            DEFAULT_EARTH_FIX_PATH, waypoint.encode(), 2, 5, (0, 1, 3, 4)
-        )
+        fix_rows = find_rows(fix_path, waypoint.encode(), 2, 5, (0, 1, 3, 4))
     found_waypoints = in_region(fix_rows)
 
     # Waypoint might be a VOR/DME
     nav_rows = []
     if not found_waypoints:
-        nav_rows = find_rows(
-            DEFAULT_EARTH_NAV_PATH, waypoint.encode(), 7, 10, (1, 2, 8, 9)
-        )
+        nav_rows = find_rows(nav_path, waypoint.encode(), 7, 10, (1, 2, 8, 9))
         found_waypoints = in_region(nav_rows)
 
     # Region missing from the nav data, so take whatever matched the name
@@ -216,7 +209,9 @@ def runway_matches(name: str, wanted: str):
     return name == wanted
 
 
-def parse_procedure(procedure_name: str, icao_code: str):
+def parse_procedure(
+    procedure_name: str, icao_code: str, cifp_dir: str = XPlanePaths().cifp
+):
     """Return the procedure's legs grouped by transition, its runways and its type.
 
     A procedure name covers several alternative routes: one set of legs per
@@ -224,7 +219,7 @@ def parse_procedure(procedure_name: str, icao_code: str):
     the transition identifier, which holds either a runway (RW04) or the fix the
     transition ends at, so the caller can pick the route actually being flown.
     """
-    file_path = os.path.join(DEFAULT_CIFP_PATH, f"{icao_code}.dat")
+    file_path = os.path.join(cifp_dir, f"{icao_code}.dat")
     transitions = {}
     complete = set()
     runways = {}
@@ -287,7 +282,8 @@ def select_transition(transitions: dict, plan_runway: str = None):
 
 
 class CIFP:
-    def __init__(self):
+    def __init__(self, paths: XPlanePaths = XPlanePaths()):
+        self._paths = paths
         self._waypoint_cache = {}
         self._procedure_cache = {}
         self._runways_cache = {}
@@ -300,7 +296,13 @@ class CIFP:
         if waypoint_key in self._waypoint_cache:
             return self._waypoint_cache[waypoint_key]
 
-        wpt = await run.cpu_bound(get_waypoint, waypoint_and_type, icao_code)
+        wpt = await run.cpu_bound(
+            get_waypoint,
+            waypoint_and_type,
+            icao_code,
+            self._paths.earth_fix,
+            self._paths.earth_nav,
+        )
         self._waypoint_cache[waypoint_key] = wpt
         return wpt
 
@@ -319,7 +321,7 @@ class CIFP:
             return self._procedure_cache[procedure_key]
 
         transitions, runways, found_procedure_type = await run.cpu_bound(
-            parse_procedure, procedure_name, icao_code
+            parse_procedure, procedure_name, icao_code, self._paths.cifp
         )
         self._runways_cache[icao_code] = runways
 
@@ -422,10 +424,10 @@ def latlon_to_fms(lat: float, lon: float):
 
 
 class FMS:
-    def __init__(self, apt: APT, path=None):
+    def __init__(self, apt: APT, paths: XPlanePaths = XPlanePaths()):
         self._apt = apt
-        self._cifp = CIFP()
-        self._path = path if path is not None else DEFAULT_FMS_PATH
+        self._cifp = CIFP(paths)
+        self._path = paths.fms_plans
         self._plans: list[FMSPlan] = []
         self._update_plans()
 

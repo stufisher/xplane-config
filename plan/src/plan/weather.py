@@ -5,8 +5,9 @@ import time
 
 from metar import Metar
 
+from .xplane import XPlanePaths
+
 logger = logging.getLogger(__name__)
-DEFAULT_WEATHER_PATH = os.path.expanduser("~/X-Plane 12/Output/real weather")
 
 
 def sorted_listing_by_creation_time(directory):
@@ -27,7 +28,7 @@ def get_lines_iterator(filename, n=3):
 
 class Weather:
     def __init__(self, path=None):
-        self._path = path if path is not None else DEFAULT_WEATHER_PATH
+        self._path = path if path is not None else XPlanePaths().real_weather
         self._weather_cache = {}
         self._last_update = 0
         self._update_weather()

@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import base64
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .to.view import takeoff_svg
+from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -125,9 +127,9 @@ class ToggleButton(ui.button):
 
 
 class UI:
-    def __init__(self):
-        self._apt = APT()
-        self._plan = Plan(self._apt, self.update_time, self.update_location)
+    def __init__(self, paths: XPlanePaths = XPlanePaths()):
+        self._apt = APT(paths)
+        self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
         self._udp = UDP(self._apt)
         self._background_running = True
         self._map_markers = []
@@ -536,7 +538,14 @@ class UI:
 
 
 def main(reload=False, show=True):
-    ui_inst = UI()
+    parser = argparse.ArgumentParser(description="X-Plane flight plan UI")
+    parser.add_argument(
+        "--xplane-dir",
+        default=DEFAULT_XPLANE_DIR,
+        help=f"X-Plane install directory (default: {DEFAULT_XPLANE_DIR})",
+    )
+    args = parser.parse_args()
+    ui_inst = UI(XPlanePaths(os.path.expanduser(args.xplane_dir)))
     cmd = [
         "open",
         "-na",
