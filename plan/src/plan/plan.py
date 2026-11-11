@@ -315,18 +315,3 @@ class Plan:
     async def shutdown(self):
         logger.info("Plan: Shutdown")
         await self._rest.shutdown()
-
-
-def run():
-    plan = Plan()
-    # plan.load_plan("/Users/clementine/X-Plane 12/Output/FMS Plans/LFLL-LOWI.fms")
-    # plan.load_plan("/Users/clementine/X-Plane 12/Output/FMS Plans/LFLL-LSZH.fms")
-    plan.load_plan("/Users/clementine/X-Plane 12/Output/FMS Plans/LFPO-EGLC.fms")
-    print(plan.weather_des.string())
-    # plan.mcdu_init()
-    # plan.mcdu_perf()
-    print(plan.location)
-
-
-if __name__ == "__main__":
-    run()
