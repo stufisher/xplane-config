@@ -1,6 +1,6 @@
 esp32:
-  board: esp32doit-devkit-v1
-  # board: esp32-s3-devkitc-1
+  # board: esp32doit-devkit-v1
+  board: esp32-s3-devkitc-1
 
 esphome:
   friendly_name: fcu_mk2
@@ -39,8 +39,10 @@ wifi:
 
 xplane_client:
   id: xp
+  udp: true
+  # host: "192.168.1.100"
   # proxyed (default 8086)
-  port: 8087
+  # port: 8087
   on_websocket_connect:
     - lambda: 'id(xp_connected) = true;'
     - component.update: disp0
@@ -102,17 +104,17 @@ xplane_client:
 
 
 i2c:
-  - sda: GPIO27
-  # - sda: GPIO10
-    scl: GPIO25
-    # scl: GPIO11
+  # - sda: GPIO27
+  - sda: GPIO10
+    # scl: GPIO25
+    scl: GPIO11
     id: bus_a
     frequency: 800kHz
 
-  - sda: GPIO21
-  # - sda: GPIO01
-    scl: GPIO19
-    # scl: GPIO02
+  # - sda: GPIO21
+  - sda: GPIO01
+    # scl: GPIO19
+    scl: GPIO02
     id: bus_b
     frequency: 800kHz
 
@@ -120,15 +122,15 @@ mcp23017_encoder:
   - i2c_id: bus_b
     id: mcp_enc
     address: 0x20
-    interrupt_pin: GPIO32
-    # interrupt_pin: GPIO12
+    # interrupt_pin: GPIO32
+    interrupt_pin: GPIO12
     debounce: 0ms
 
   - i2c_id: bus_b
     id: mcp_enc_b
     address: 0x24
-    interrupt_pin: GPIO26
-    # interrupt_pin: GPIO13
+    # interrupt_pin: GPIO26
+    interrupt_pin: GPIO13
     debounce: 0ms
 
 mcp23017:
@@ -168,16 +170,13 @@ matrix_keypad:
 
 tlc5947:
   id: tlc
-  data_pin: GPIO04
-  ## data_pin: GPIO07
-  clock_pin: GPIO17
-  ## clock_pin: GPIO06
-  lat_pin: GPIO18
-  ## lat_pin: GPIO05
+  # data_pin: GPIO04
+  data_pin: GPIO07
+  # clock_pin: GPIO17
+  clock_pin: GPIO06
+  # lat_pin: GPIO18
+  lat_pin: GPIO05
 
-  # data_pin: GPIO00
-  # clock_pin: GPIO16
-  # lat_pin: GPIO05
   num_chips: 3
 
 ads1115:
@@ -811,9 +810,9 @@ sensor:
     name: "FCU HDG"
     id: hdg
     unit_of_measurement: "°"
-    accuracy_decimals: 1
+    accuracy_decimals: 0
     filters:
-      - delta: 0.1
+      - delta: 1
     on_value:
       # - component.update: display1
       - component.update: disp1
@@ -1004,7 +1003,7 @@ sensor:
       - throttle: 100ms
     on_value:
       - lambda: |-
-          float b = x * 0.5;
+          float b = x * 0.1;
           id(loc_bk_out).set_level(b);
           id(ap1_bk_out).set_level(b);
           id(ap2_bk_out).set_level(b);

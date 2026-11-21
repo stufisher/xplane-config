@@ -1,6 +1,12 @@
 esphome:
   name: flaps-spdbrk
   friendly_name: Flaps & Speedbrake
+  on_boot:
+    priority: 600 # after the LED is set up, before WiFi can connect
+    then:
+      - light.turn_on:
+          id: status_rgb
+          effect: "WiFi Connecting"
 
 esp32:
   board: esp32-s3-devkitc-1 # CHANGE_ME
@@ -35,8 +41,9 @@ external_components:
 
 xplane_client:
   id: xp
+  udp: true
   # host: 192.168.1.50   # or omit to auto-discover X-Plane via its UDP beacon
-  port: 8087
+  # port: 8087
   # Hardware is authoritative: on every (re)connect push the panel's current state to the sim
   # instead of reading the sim's state back. Fires after all names are resolved.
   on_websocket_connect:
@@ -44,8 +51,8 @@ xplane_client:
         id: status_rgb
         brightness: 50%
         red: 0%
-        green: 0%
-        blue: 100%
+        green: 100%
+        blue: 0%
         effect: none
     - if:
         condition:
@@ -69,7 +76,11 @@ xplane_client:
         then:
           - light.turn_on:
               id: status_rgb
-              effect: "XPlane Connecting"
+              brightness: 50%
+              red: 100%
+              green: 0%
+              blue: 0%
+              effect: none
         else:
           - light.turn_on:
               id: status_rgb
@@ -216,19 +227,19 @@ light:
             - state: true
               brightness: 50%
               red: 100%
-              green: 40%
+              green: 80%
               blue: 0%
-              duration: 250ms
+              duration: 1000ms
             - state: false
-              duration: 250ms
+              duration: 1000ms
       - strobe:
           name: XPlane Connecting
           colors:
             - state: true
               brightness: 50%
-              red: 0%
-              green: 0%
-              blue: 100%
-              duration: 250ms
+              red: 100%
+              green: 30%
+              blue: 0%
+              duration: 1000ms
             - state: false
-              duration: 250ms
+              duration: 1000ms

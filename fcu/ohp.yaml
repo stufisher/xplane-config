@@ -1,0 +1,604 @@
+esp32:
+  board: esp32-s3-devkitc-1
+
+esphome:
+  friendly_name: ohp
+  name: ohp
+
+debug:
+  update_interval: 5s
+
+external_components:
+  - source: libs/home/components
+    components: [xplane_client, mcp23017_encoder]
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret nti_api_key
+
+ota:
+  password: !secret nti_ota
+  platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+
+i2c:
+  - sda: GPIO07
+    scl: GPIO06
+
+mcp23017:
+  - id: mcp_a
+    address: 0x20
+  - id: mcp_b
+    address: 0x22
+  - id: mcp_c
+    address: 0x24
+
+tlc5947:
+  num_chips: 1
+  id: tlc
+  data_pin: GPIO11
+  clock_pin: GPIO12
+  lat_pin: GPIO13
+
+xplane_client:
+  id: xp
+  udp: true
+  # host: 192.168.1.100 # or omit to auto-discover
+  # port: 8087 # LAN proxy in front of X-Plane's Web API
+  on_websocket_connect:
+    - script.execute: sync_switches
+    # Second pass in case the sim was still settling when the first one landed
+    - delay: 5s
+    - script.execute: sync_switches
+
+# Re-publishing a position sensor fires its on_value, which writes the dataref. Writes are
+# spaced out: xplane_client drops a websocket send silently if it fails, so the connect sync
+# avoids sending everything in one burst.
+script:
+  - id: sync_switches
+    then:
+      - component.update: xbleed_pos
+      - delay: 50ms
+      - component.update: wiper_pos
+      - delay: 50ms
+      - component.update: strobe_pos
+      - delay: 50ms
+      - component.update: beacon_pos
+      - delay: 50ms
+      - component.update: wing_lt_pos
+      - delay: 50ms
+      - component.update: navlogo_pos
+      - delay: 50ms
+      - component.update: rwy_pos
+      - delay: 50ms
+      - component.update: land_l_pos
+      - delay: 50ms
+      - component.update: land_r_pos
+      - delay: 50ms
+      - component.update: nose_pos
+      - delay: 50ms
+      - component.update: eng1_pos
+      - delay: 50ms
+      - component.update: eng2_pos
+      - delay: 50ms
+      - component.update: eng_mode_pos
+      - delay: 50ms
+      - component.update: seatbelt_pos
+      - delay: 50ms
+      - component.update: emer_exit_pos
+      - delay: 50ms
+      - script.execute: sync_korries
+
+  # --- Korries ------------------------------------------------------------------------------
+  # Switch types follow the real A320 (ohp/korry_switch_types.md). Latching korries write their
+  # position (pressed in = ON) on every change and on connect; momentary ones act on press only.
+  - id: sync_korries
+    then:
+      - script.execute:
+          id: ldg_flap3_set
+          pressed: !lambda "return id(ldg_flap3_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: fuel_set
+          pressed: !lambda "return id(fuel_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: pack_set
+          pressed: !lambda "return id(pack_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: apu_bleed_set
+          pressed: !lambda "return id(apu_bleed_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: bat_set
+          pressed: !lambda "return id(bat_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: y_elec_set
+          pressed: !lambda "return id(y_elec_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: apu_master_set
+          pressed: !lambda "return id(apu_master_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: wing_ai_set
+          pressed: !lambda "return id(wing_ai_btn).state;"
+      - delay: 50ms
+      - script.execute:
+          id: eng_ai_set
+          pressed: !lambda "return id(eng_ai_btn).state;"
+
+  # Latching
+  - id: ldg_flap3_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "LDG FLAP 3 %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/gpwscommands/Flap3On" : "toliss_airbus/gpwscommands/Flap3Off"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/gpwscommands/Flap3On" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/gpwscommands/Flap3Off" }
+  # One korry for all six pumps: four wing, two centre tank
+  - id: fuel_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "FUEL PUMPS %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/fuelcommands/Pump{L,R}Wing{1,2}On + Pump{L,R}CenterOn" : "toliss_airbus/fuelcommands/Pump{L,R}Wing{1,2}Off + Pump{L,R}CenterOff"']
+      - if:
+          condition:
+            lambda: "return !pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLWing1On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLWing2On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRWing1On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRWing2On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLCenterOn" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRCenterOn" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLWing1Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLWing2Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRWing1Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRWing2Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpLCenterOff" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/fuelcommands/PumpRCenterOff" }
+  - id: pack_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "PACK 1+2 %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/aircondcommands/Pack1On + Pack2On" : "toliss_airbus/aircondcommands/Pack1Off + Pack2Off"']
+      - if:
+          condition:
+            lambda: "return !pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/aircondcommands/Pack1On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/aircondcommands/Pack2On" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/aircondcommands/Pack1Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/aircondcommands/Pack2Off" }
+  - id: apu_bleed_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "APU BLEED %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/apucommands/BleedOn" : "toliss_airbus/apucommands/BleedOff"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/apucommands/BleedOn" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/apucommands/BleedOff" }
+  - id: bat_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "BAT 1+2 %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/eleccommands/Bat1On + Bat2On" : "toliss_airbus/eleccommands/Bat1Off + Bat2Off"']
+      - if:
+          condition:
+            lambda: "return !pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/Bat1On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/Bat2On" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/Bat1Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/Bat2Off" }
+  # No command for the yellow elec pump: write the switch dataref
+  - id: y_elec_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "Y ELEC PUMP %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "AirbusFBW/HydOHPArray[3] = 1" : "AirbusFBW/HydOHPArray[3] = 0"']
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: "AirbusFBW/HydOHPArray"
+          index: 3
+          value: !lambda "return pressed ? 1 : 0;"
+  - id: apu_master_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "APU MASTER %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/apucommands/MasterOn" : "toliss_airbus/apucommands/MasterOff"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/apucommands/MasterOn" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/apucommands/MasterOff" }
+  - id: wing_ai_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "ANTI ICE WING %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/antiicecommands/WingOn" : "toliss_airbus/antiicecommands/WingOff"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/WingOn" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/WingOff" }
+  - id: eng_ai_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "ANTI ICE ENG 1+2 %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/antiicecommands/ENG1On + ENG2On" : "toliss_airbus/antiicecommands/ENG1Off + ENG2Off"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/ENG1On" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/ENG2On" }
+          else:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/ENG1Off" }
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/antiicecommands/ENG2Off" }
+
+  # Momentary
+  # OFF->ON: make the cart available first, then turn the switch on (AVAIL lamp leads ON).
+  # ON->OFF: drop the switch and the cart together, no delay.
+  - id: ext_pwr_set
+    mode: queued # the release arrives during the press's delay
+    parameters: { pressed: bool }
+    then:
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - if:
+                condition:
+                  lambda: "return (int) id(ext_pwr_lt_b).state == 1;"
+                then:
+                  - logger.log:
+                      tag: ohp
+                      format: "EXT PWR pressed -> toliss_airbus/eleccommands/ExtPowOff + EnableExternalPower = 0"
+                  - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/ExtPowOff" }
+                  - xplane_client.set_dataref:
+                      id: xp
+                      dataref: "AirbusFBW/EnableExternalPower"
+                      value: 0
+                else:
+                  - logger.log:
+                      tag: ohp
+                      format: "EXT PWR pressed -> EnableExternalPower = 1, 500 ms, toliss_airbus/eleccommands/ExtPowOn"
+                  - xplane_client.set_dataref:
+                      id: xp
+                      dataref: "AirbusFBW/EnableExternalPower"
+                      value: 1
+                  - delay: 500ms
+                  - xplane_client.send_command: { id: xp, command: "toliss_airbus/eleccommands/ExtPowOn" }
+  - id: apu_start_set
+    parameters: { pressed: bool }
+    then:
+      - logger.log:
+          tag: ohp
+          format: "APU START %s -> %s"
+          args: ['pressed ? "pressed" : "released"', 'pressed ? "toliss_airbus/apucommands/StarterOn" : "released, no command"']
+      - if:
+          condition:
+            lambda: "return pressed;"
+          then:
+            - xplane_client.send_command: { id: xp, command: "toliss_airbus/apucommands/StarterOn" }
+  # VERIFY: fire test is a guess at what this shared annunciator's button should do.
+  - id: eng_fire_press
+    then:
+      - logger.log:
+          tag: ohp
+          format: "ENG FIRE/FAULT pressed -> AirbusFBW/FireTestENG1 + FireTestENG2"
+      - xplane_client.send_command: { id: xp, command: "AirbusFBW/FireTestENG1" }
+      - xplane_client.send_command: { id: xp, command: "AirbusFBW/FireTestENG2" }
+
+  # FUEL PUMPS OFF lamp: any of the six pump switches off
+  - id: update_fuel_off
+    then:
+      - output.set_level:
+          id: fuel_b_out
+          level: !lambda |-
+            for (auto *s : {id(fuel_sw_l1), id(fuel_sw_l2), id(fuel_sw_c_l), id(fuel_sw_c_r), id(fuel_sw_r1), id(fuel_sw_r2)})
+              if (s->state == 0) return 1.0f;
+            return 0.0f;
+
+  # FUEL PUMPS FAULT lamp: any wing pump faulted
+  - id: update_fuel_fault
+    then:
+      - output.set_level:
+          id: fuel_a_out
+          level: !lambda |-
+            auto gt1 = [](float x) { return !std::isnan(x) && x > 1; };
+            auto lit = [](float x) { return !std::isnan(x) && x != 0; };
+            return (gt1(id(fuel_flt_l1).state) || gt1(id(fuel_flt_l2).state) ||
+                    lit(id(fuel_flt_r1).state) || lit(id(fuel_flt_r2).state)) ? 1.0f : 0.0f;
+
+  # FIRE lamp: either engine on fire (ENG panel FIRE lights).
+  - id: update_eng_fire
+    then:
+      - output.set_level:
+          id: eng_fire_out
+          level: !lambda "return (id(eng1_fire).state != 0 || id(eng2_fire).state != 0) ? 1.0f : 0.0f;"
+
+packages:
+  # Debug: logs raw MCP pin changes for mapping the wiring; remove when done
+  mcp_debug: !include pkg/ohp_mcp_debug.yaml
+
+  # --- 3-position toggles: (mcp, pin_up, pin_dn) -> dref[idx] = v_up / v_mid / v_dn ------------
+  # X BLEED ON / AUTO / OFF; dref order 0=SHUT 1=AUTO 2=OPEN
+  xbleed: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: xbleed, label: "X BLEED", mcp_up: mcp_b, pin_up: "15", mcp_dn: mcp_c, pin_dn: "4", dref: "AirbusFBW/XBleedSwitch", idx: "-1", v_up: "2", v_mid: "1", v_dn: "0" }
+  # WIPER FAST / SLOW / OFF; VERIFY 0=OFF 1=SLOW 2=FAST (captain side only)
+  wiper: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: wiper, label: "WIPER", mcp_up: mcp_c, pin_up: "14", mcp_dn: mcp_c, pin_dn: "5", dref: "AirbusFBW/LeftWiperSwitch", idx: "-1", v_up: "2", v_mid: "1", v_dn: "0" }
+  # STROBE ON / AUTO / OFF; 0=OFF 1=AUTO 2=ON
+  strobe: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: strobe, label: "STROBE", mcp_up: mcp_a, pin_up: "13", mcp_dn: mcp_a, pin_dn: "14", dref: "AirbusFBW/OHPLightSwitches", idx: "7", v_up: "2", v_mid: "1", v_dn: "0" }
+  # NAV & LOGO 2 / 1 / OFF; 0=OFF 1=1 2=2
+  navlogo: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: navlogo, label: "NAV & LOGO", mcp_up: mcp_b, pin_up: "10", mcp_dn: mcp_b, pin_dn: "11", dref: "AirbusFBW/OHPLightSwitches", idx: "2", v_up: "2", v_mid: "1", v_dn: "0" }
+  # LAND L / R ON / OFF / RETRACT; 0=RETRACT 1=OFF 2=ON
+  land_l: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: land_l, label: "LAND L", mcp_up: mcp_a, pin_up: "8", mcp_dn: mcp_a, pin_dn: "9", dref: "AirbusFBW/OHPLightSwitches", idx: "4", v_up: "2", v_mid: "1", v_dn: "0" }
+  land_r: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: land_r, label: "LAND R", mcp_up: mcp_b, pin_up: "12", mcp_dn: mcp_b, pin_dn: "13", dref: "AirbusFBW/OHPLightSwitches", idx: "5", v_up: "2", v_mid: "1", v_dn: "0" }
+  # NOSE T.O / TAXI / OFF; 0=OFF 1=TAXI 2=T.O
+  nose: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: nose, label: "NOSE", mcp_up: mcp_b, pin_up: "8", mcp_dn: mcp_b, pin_dn: "9", dref: "AirbusFBW/OHPLightSwitches", idx: "3", v_up: "2", v_mid: "1", v_dn: "0" }
+  # ENG MODE rotary CRK / NORM / IGN: CRK pin as "up", IGN pin as "down", NORM = neither
+  # (its own contact on mcp_c 9 is wired but not read);
+  # 0=CRANK 1=NORM 2=IGN
+  eng_mode: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: eng_mode, label: "ENG MODE", mcp_up: mcp_c, pin_up: "10", mcp_dn: mcp_c, pin_dn: "8", dref: "AirbusFBW/ENGModeSwitch", idx: "-1", v_up: "0", v_mid: "1", v_dn: "2" }
+  # EMER EXIT ON / ARM / OFF; 0=OFF 1=ARM 2=ON
+  emer_exit: !include
+    file: pkg/ohp_toggle3.yaml
+    vars: { name: emer_exit, label: "EMER EXIT", mcp_up: mcp_c, pin_up: "1", mcp_dn: mcp_c, pin_dn: "2", dref: "AirbusFBW/OHPLightSwitches", idx: "10", v_up: "2", v_mid: "1", v_dn: "0" }
+
+  # --- 2-position toggles: (mcp, pin) -> dref[idx] = v_on / v_off ------------------------------
+  beacon: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: beacon, label: "BEACON", mcp: mcp_a, pin: "10", dref: "AirbusFBW/OHPLightSwitches", idx: "0", v_on: "1", v_off: "0" }
+  wing_lt: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: wing_lt, label: "WING LT", mcp: mcp_b, pin: "14", dref: "AirbusFBW/OHPLightSwitches", idx: "1", v_on: "1", v_off: "0" }
+  rwy: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: rwy, label: "RWY TURN OFF", mcp: mcp_a, pin: "12", dref: "AirbusFBW/OHPLightSwitches", idx: "6", v_on: "1", v_off: "0" }
+  eng1: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: eng1, label: "ENG 1 MASTER", mcp: mcp_c, pin: "6", dref: "AirbusFBW/ENG1MasterSwitch", idx: "-1", v_on: "1", v_off: "0" }
+  eng2: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: eng2, label: "ENG 2 MASTER", mcp: mcp_b, pin: "6", dref: "AirbusFBW/ENG2MasterSwitch", idx: "-1", v_on: "1", v_off: "0" }
+  # VERIFY: SEAT BELTS sign 0=OFF 1=ON
+  seatbelt: !include
+    file: pkg/ohp_toggle2.yaml
+    vars: { name: seatbelt, label: "SEAT BELTS", mcp: mcp_c, pin: "3", dref: "AirbusFBW/OHPLightSwitches", idx: "11", v_on: "1", v_off: "0" }
+
+  # --- Korries: top lamp (a) / bottom lamp (b), TLC ch per lamp; inverted "false" = open = pressed
+  # LDG FLAP 3: ON only; mcp_a pin 15, contact open = ON
+  ldg_flap3: !include
+    file: pkg/ohp_korry1.yaml
+    vars: { name: ldg_flap3, label: "LDG FLAP 3", mcp: mcp_a, pin: "15", inverted: "false", dref_b: "AirbusFBW/GPWSSwitchArray", idx_b: "3", cond_b: "x != 0", ch_b: "23" }
+  # FUEL PUMPS (mcp_a pin 11, FAULT ch 22 / OFF ch 21): inline below, its OFF lamp watches all six pumps
+  # PACK 1+2: FAULT either pack's fault light / OFF either pack switch off (per the dref deck)
+  pack: !include
+    file: pkg/ohp_korry2.yaml
+    vars: { name: pack, label: "PACK 1+2", mcp: mcp_b, pin: "3", inverted: "false", dref_a1: "AirbusFBW/OHPLightsATA21_Raw", idx_a1: "7", dref_a2: "AirbusFBW/OHPLightsATA21_Raw", idx_a2: "9", cond_a: "x != 0", ch_a: "19", dref_b1: "AirbusFBW/Pack1Switch", idx_b1: "-1", dref_b2: "AirbusFBW/Pack2Switch", idx_b2: "-1", cond_b: "x == 0", ch_b: "20" }
+  apu_bleed: !include
+    file: pkg/ohp_korry1.yaml
+    vars: { name: apu_bleed, label: "APU BLEED", mcp: mcp_b, pin: "2", inverted: "false", dref_b: "AirbusFBW/APUBleedSwitch", idx_b: "-1", cond_b: "x != 0", ch_b: "18" }
+  # EXT PWR: AVAIL == 2 / ON == 1 (per the dref deck)
+  ext_pwr: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: ext_pwr, label: "EXT PWR", mcp: mcp_b, pin: "5", inverted: "false", dref_a: "AirbusFBW/ExtPowOHPArray", idx_a: "0", cond_a: "(int) x == 2", ch_a: "16", dref_b: "AirbusFBW/ExtPowOHPArray", idx_b: "0", cond_b: "(int) x == 1", ch_b: "17" }
+  # BAT 1+2: FAULT either battery > 1 / OFF either battery == 0 (per the dref deck)
+  bat: !include
+    file: pkg/ohp_korry2.yaml
+    vars: { name: bat, label: "BAT 1+2", mcp: mcp_b, pin: "4", inverted: "false", dref_a1: "AirbusFBW/BatOHPArray", idx_a1: "0", dref_a2: "AirbusFBW/BatOHPArray", idx_a2: "1", cond_a: "x > 1", ch_a: "14", dref_b1: "AirbusFBW/BatOHPArray", idx_b1: "0", dref_b2: "AirbusFBW/BatOHPArray", idx_b2: "1", cond_b: "x == 0", ch_b: "15" }
+  # Y ELEC PUMP: FAULT pump > 1 / ON switch
+  y_elec: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: y_elec, label: "Y ELEC PUMP", mcp: mcp_c, pin: "15", inverted: "false", dref_a: "AirbusFBW/HydPumpOHPArray", idx_a: "3", cond_a: "x > 1", ch_a: "12", dref_b: "AirbusFBW/HydOHPArray", idx_b: "3", cond_b: "x != 0", ch_b: "13" }
+  # APU MASTER: FAULT > 1 / ON != 0 (per the dref deck)
+  apu_master: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: apu_master, label: "APU MASTER", mcp: mcp_b, pin: "1", inverted: "false", dref_a: "AirbusFBW/APUMaster", idx_a: "-1", cond_a: "x > 1", ch_a: "1", dref_b: "AirbusFBW/APUMaster", idx_b: "-1", cond_b: "x != 0", ch_b: "0" }
+  apu_start: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: apu_start, label: "APU START", mcp: mcp_b, pin: "0", dref_a: "AirbusFBW/APUAvail", idx_a: "-1", cond_a: "x != 0", ch_a: "3", dref_b: "AirbusFBW/APUStarter", idx_b: "-1", cond_b: "x != 0", ch_b: "2" }
+  wing_ai: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: wing_ai, label: "ANTI ICE WING", mcp: mcp_c, pin: "12", dref_a: "AirbusFBW/WAILights", idx_a: "-1", cond_a: "x > 1", ch_a: "7", dref_b: "AirbusFBW/WAISwitch", idx_b: "-1", cond_b: "x != 0", ch_b: "6" }
+  # ENG 1/2 anti ice: lamps follow ENG 1
+  eng_ai: !include
+    file: pkg/ohp_korry.yaml
+    vars: { name: eng_ai, label: "ANTI ICE ENG 1+2", mcp: mcp_c, pin: "13", inverted: "false", dref_a: "AirbusFBW/ENG1AILights", idx_a: "-1", cond_a: "x > 1", ch_a: "9", dref_b: "AirbusFBW/ENG1AISwitch", idx_b: "-1", cond_b: "x != 0", ch_b: "8" }
+
+# --- Inline korries: FUEL PUMPS (OFF lamp ORs six pumps), ENG FIRE / FAULT (FIRE ORs both engines)
+binary_sensor:
+  - platform: gpio
+    id: fuel_btn
+    name: "FUEL PUMPS"
+    pin:
+      mcp23xxx: mcp_a
+      number: 11
+      mode:
+        input: true
+        pullup: true
+      inverted: false # contact open = pressed
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - script.execute:
+          id: fuel_set
+          pressed: !lambda "return x;"
+  - platform: gpio
+    id: eng_fire_btn
+    name: "ENG FIRE FAULT"
+    pin:
+      mcp23xxx: mcp_c
+      number: 11
+      mode:
+        input: true
+        pullup: true
+      inverted: false # contact open = pressed
+    filters:
+      - delayed_on_off: 20ms
+    on_press:
+      - script.execute: eng_fire_press
+
+sensor:
+  # FUEL PUMPS FAULT: any wing pump's fault, per the dref deck (L TK FuelPumpOHPArray > 1,
+  # R TK OHPLightsATA28_Raw != 0); no centre tank pump fault source found
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelPumpOHPArray"
+    index: 0 # L TK 1
+    id: fuel_flt_l1
+    internal: true
+    on_value:
+      - script.execute: update_fuel_fault
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelPumpOHPArray"
+    index: 1 # L TK 2
+    id: fuel_flt_l2
+    internal: true
+    on_value:
+      - script.execute: update_fuel_fault
+  - platform: xplane_client
+    dataref: "AirbusFBW/OHPLightsATA28_Raw"
+    index: 9 # R TK 1
+    id: fuel_flt_r1
+    internal: true
+    on_value:
+      - script.execute: update_fuel_fault
+  - platform: xplane_client
+    dataref: "AirbusFBW/OHPLightsATA28_Raw"
+    index: 11 # R TK 2
+    id: fuel_flt_r2
+    internal: true
+    on_value:
+      - script.execute: update_fuel_fault
+  # FUEL PUMPS OFF: pump switch indices per the dref deck
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 0 # L TK 1
+    id: fuel_sw_l1
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 1 # L TK 2
+    id: fuel_sw_l2
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 2 # CTR TK L
+    id: fuel_sw_c_l
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 3 # CTR TK R
+    id: fuel_sw_c_r
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 4 # R TK 1
+    id: fuel_sw_r1
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+  - platform: xplane_client
+    dataref: "AirbusFBW/FuelOHPArray"
+    index: 5 # R TK 2
+    id: fuel_sw_r2
+    internal: true
+    on_value:
+      - script.execute: update_fuel_off
+
+  - platform: xplane_client
+    dataref: "AirbusFBW/OHPLightsATA70_Raw"
+    index: 11
+    id: eng1_fire
+    internal: true
+    on_value:
+      - script.execute: update_eng_fire
+  - platform: xplane_client
+    dataref: "AirbusFBW/OHPLightsATA70_Raw"
+    index: 13
+    id: eng2_fire
+    internal: true
+    on_value:
+      - script.execute: update_eng_fire
+
+output:
+  - platform: tlc5947
+    id: fuel_a_out
+    channel: 22
+  - platform: tlc5947
+    id: fuel_b_out
+    channel: 21
+  - platform: tlc5947
+    id: eng_fire_out
+    channel: 5
+  # ch 4 is wired to the ENG FAULT lamp (no dataref found yet, so not driven)
