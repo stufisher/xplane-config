@@ -84,7 +84,7 @@ class REST:
         self.__commands: dict[str, int] = {}
         self.__datarefs: dict[str, dict[str, any]] = {}
 
-        self._dataref_cache = {}
+        self._dref_cache = {}
         self._websocket_running = True
         self._websocket = None
         self._on_drefs_changed = on_drefs_changed
