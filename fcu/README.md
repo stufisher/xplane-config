@@ -21,6 +21,7 @@ brake fan.
 | [fcu_mk2.yaml](fcu_mk2.yaml) | Firmware: eight SSD1306 OLEDs behind a TCA9548A for the FCU windows, button matrix and rotary encoders on MCP23017s, rotary selectors read through ADS1115s, lamps and backlights on three daisy-chained TLC5947s |
 | [pkg/](pkg/) | Button templates used by the firmware: lit buttons, korries, blink and clear buttons |
 | [front_panel.scad](front_panel.scad) | Front panel |
+| [fcu_korry_labels.scad](fcu_korry_labels.scad) | Korries (EFIS and button style): housings with side grooves that take the tongues on the front panel's mounting tabs and on the slide-on clips, plus light guides, legends and the clips |
 | [fcu_enclosure.scad](fcu_enclosure.scad) | Enclosure |
 
 ## Overhead panel
@@ -34,6 +35,7 @@ mode.
 |---|---|
 | [ohp.yaml](ohp.yaml) | Firmware: switches and korries on three MCP23017s, korry lamps on one TLC5947 |
 | [oh_panel.scad](oh_panel.scad) | Front panel |
+| [oh_korry_labels.scad](oh_korry_labels.scad) | Korries: housings with side grooves that take the tongues on the panel's mounting tabs and on the slide-on clips, plus light guides, legends and the clips |
 | [oh_enclosure.scad](oh_enclosure.scad) | Enclosure |
 
 ## Flaps and speedbrake
