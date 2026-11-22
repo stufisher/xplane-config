@@ -379,7 +379,7 @@ class Decks:
             self._deck.update_key(i, image)
 
     async def close(self):
-        await self._udp.close()
+        await self._udp.shutdown()
         if self._fcu:
             self._fcu.close()
         self._deck.close()
