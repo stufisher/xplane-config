@@ -14,6 +14,7 @@ from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
+from .places import download_missing
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
@@ -367,9 +368,9 @@ class UI:
 
     def update_plans(self):
         opts = {}
-        plans = sorted(self._plan.plans, key=lambda d: d.departure)
+        plans = sorted(self._plan.plans, key=lambda d: d.departure_board)
         for plan in plans:
-            opts[plan.file_path] = plan.departure + " -> " + plan.destination
+            opts[plan.file_path] = f"{plan.departure_board} -> {plan.destination_board}"
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
 
@@ -545,6 +546,7 @@ def main(reload=False, show=True):
         help=f"X-Plane install directory (default: {DEFAULT_XPLANE_DIR})",
     )
     args = parser.parse_args()
+    download_missing()
     ui_inst = UI(XPlanePaths(os.path.expanduser(args.xplane_dir)))
     cmd = [
         "open",

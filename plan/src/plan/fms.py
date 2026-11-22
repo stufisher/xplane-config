@@ -8,6 +8,7 @@ from airports.airport_data import get_airport_by_icao
 from nicegui import run
 
 from .apt import APT
+from .places import Places
 from .xplane import XPlanePaths
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,10 @@ class FMSPlan:
     APP: Optional[str] = None
     DESRWY: Optional[str] = None
     DESRWY_LENGTH: Optional[int] = None
+
+    # City and IATA code as a departure board shows them, e.g. "Lyon LYS"
+    departure_board: Optional[str] = None
+    destination_board: Optional[str] = None
 
     sid_proc: Optional[Procedure] = None
     star_proc: Optional[Procedure] = None
@@ -424,8 +429,11 @@ def latlon_to_fms(lat: float, lon: float):
 
 
 class FMS:
-    def __init__(self, apt: APT, paths: XPlanePaths = XPlanePaths()):
+    def __init__(
+        self, apt: APT, paths: XPlanePaths = XPlanePaths(), places: Places = None
+    ):
         self._apt = apt
+        self._places = places or Places()
         self._cifp = CIFP(paths)
         self._path = paths.fms_plans
         self._plans: list[FMSPlan] = []
@@ -457,9 +465,21 @@ class FMS:
                     if key == "NUMENR":
                         in_waypoints = True
 
-            fms["departure"] = get_airport_by_icao(fms["ADEP"])[0]["airport"]
-            fms["destination"] = get_airport_by_icao(fms["ADES"])[0]["airport"]
+            departure = get_airport_by_icao(fms["ADEP"])[0]
+            destination = get_airport_by_icao(fms["ADES"])[0]
+            fms["departure"] = departure["airport"]
+            fms["destination"] = destination["airport"]
+            fms["departure_board"] = self._board(fms["ADEP"], departure)
+            fms["destination_board"] = self._board(fms["ADES"], destination)
             return FMSPlan(**fms)
+
+    def _board(self, icao_code: str, airport: dict):
+        """OpenFlights city and IATA code, else the airports-py airport name"""
+        place = self._places.lookup(icao_code)
+        if not place.city:
+            return airport["airport"]
+        iata = place.iata or airport.get("iata")
+        return f"{place.city} {iata}" if iata else place.city
 
     def _update_plans(self):
         self._plans = []
