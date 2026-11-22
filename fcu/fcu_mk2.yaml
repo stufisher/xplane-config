@@ -1186,13 +1186,15 @@ sensor:
     pin_a: 8
     pin_b: 12
     on_clockwise:
-      - xplane_client.send_command:
+      - xplane_client.set_dataref:
           id: xp
-          command: "sim/flight_controls/pitch_trim_up"
+          dataref: "AirbusFBW/TrimWheelDragAxis"
+          value: 0.5
     on_anticlockwise:
-      - xplane_client.send_command:
+      - xplane_client.set_dataref:
           id: xp
-          command: "sim/flight_controls/pitch_trim_down"
+          dataref: "AirbusFBW/TrimWheelDragAxis"
+          value: -0.5
 
   - platform: debug
     loop_time:
