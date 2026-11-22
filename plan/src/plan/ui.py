@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import logging
 import os
 import time
+import uuid
 import webbrowser
 
 from nicegui import ui, app, events, run
@@ -16,6 +17,9 @@ from .apt import APT
 from .fms import latlon_to_fms
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
+
+# Chrome app window size that fits the whole UI
+DEFAULT_WINDOW_SIZE = "956x652"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -537,12 +541,27 @@ class UI:
         await self._plan.shutdown()
 
 
+def window_size(value: str) -> str:
+    """WIDTHxHEIGHT as Chrome's --window-size wants it, WIDTH,HEIGHT"""
+    try:
+        width, height = (int(part) for part in value.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected WIDTHxHEIGHT, got {value!r}")
+    return f"{width},{height}"
+
+
 def main(reload=False, show=True):
     parser = argparse.ArgumentParser(description="X-Plane flight plan UI")
     parser.add_argument(
         "--xplane-dir",
         default=DEFAULT_XPLANE_DIR,
         help=f"X-Plane install directory (default: {DEFAULT_XPLANE_DIR})",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=window_size,
+        default=DEFAULT_WINDOW_SIZE,
+        help=f"Size of the app window as WIDTHxHEIGHT (default: {DEFAULT_WINDOW_SIZE})",
     )
     args = parser.parse_args()
     ui_inst = UI(XPlanePaths(os.path.expanduser(args.xplane_dir)))
@@ -552,7 +571,11 @@ def main(reload=False, show=True):
         "Google Chrome",
         "--args",
         "--app=%s",
-        "--user-data-dir=/tmp/chrome-kiosk-{uuid4()}",
+        # A fresh profile has no saved window bounds, so Chrome honours --window-size
+        f"--user-data-dir=/tmp/chrome-kiosk-{uuid.uuid4()}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        f"--window-size={args.window_size}",
     ]
     webbrowser.register(
         "kiosk", None, webbrowser.BackgroundBrowser(cmd), preferred=True
