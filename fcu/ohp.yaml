@@ -48,6 +48,12 @@ tlc5947:
   clock_pin: GPIO12
   lat_pin: GPIO13
 
+globals:
+  - id: xp_connected
+    type: bool
+    restore_value: false
+    initial_value: "false"
+
 xplane_client:
   id: xp
   udp: true
@@ -55,9 +61,13 @@ xplane_client:
   # port: 8087 # LAN proxy in front of X-Plane's Web API
   on_websocket_connect:
     - script.execute: sync_switches
-    # Second pass in case the sim was still settling when the first one landed
-    - delay: 5s
-    - script.execute: sync_switches
+    # # Second pass in case the sim was still settling when the first one landed
+    # - delay: 5s
+    # - script.execute: sync_switches
+    - lambda: "id(xp_connected) = true;"
+      # ...your existing actions
+  on_websocket_disconnect:
+    - lambda: "id(xp_connected) = false;"
 
 # Re-publishing a position sensor fires its on_value, which writes the dataref. Writes are
 # spaced out: xplane_client drops a websocket send silently if it fails, so the connect sync
@@ -365,6 +375,9 @@ script:
           level: !lambda "return (id(eng1_fire).state != 0 || id(eng2_fire).state != 0) ? 1.0f : 0.0f;"
 
 packages:
+  # Startup
+  startup_sweep: !include pkg/ohp_startup_sweep.yaml
+
   # Debug: logs raw MCP pin changes for mapping the wiring; remove when done
   mcp_debug: !include pkg/ohp_mcp_debug.yaml
 

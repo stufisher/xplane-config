@@ -1,0 +1,67 @@
+# Reusable: a 3-position toggle (ON-OFF-ON, e.g. MTS-103) on two MCP23017 pins, written to the
+# sim as an absolute dataref value. Throw contacts to GND, common to GND, MCP pull-ups:
+# up pin LOW = up position, down pin LOW = down position, neither = middle.
+# Hardware is authoritative: the position is pushed on every change and again on websocket
+# connect (main file calls component.update on <name>_pos).
+# Vars:
+#   name label        slug / HA name
+#   mcp_up pin_up     MCP23017 id and pin number (0-15) of the up throw
+#   mcp_dn pin_dn     same for the down throw; the two may be on different chips
+#   inv_up inv_dn     optional, default "true" (closed = that position); "false" for open
+#   dref idx          dataref and array index (-1 = scalar)
+#   v_up v_mid v_dn   value written for each position
+# Block YAML only: a flow {} map can't hold a ${var} token.
+defaults:
+  inv_up: "true"
+  inv_dn: "true"
+
+binary_sensor:
+  - platform: gpio
+    id: ${name}_up
+    internal: true
+    pin:
+      mcp23xxx: ${mcp_up}
+      number: ${pin_up}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${inv_up}
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - component.update: ${name}_pos
+  - platform: gpio
+    id: ${name}_dn
+    internal: true
+    pin:
+      mcp23xxx: ${mcp_dn}
+      number: ${pin_dn}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${inv_dn}
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - component.update: ${name}_pos
+
+sensor:
+  - platform: template
+    id: ${name}_pos
+    name: ${label}
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: |-
+      if (id(${name}_up).state) return ${v_up};
+      if (id(${name}_dn).state) return ${v_dn};
+      return ${v_mid};
+    on_value:
+      - logger.log:
+          tag: ohp
+          format: "${label} -> ${dref}[${idx}] = %.0f"
+          args: [x]
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: ${dref}
+          index: ${idx}
+          value: !lambda "return x;"

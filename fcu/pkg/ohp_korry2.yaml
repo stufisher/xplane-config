@@ -1,0 +1,88 @@
+# Reusable: a korry for two units (e.g. PACK 1+2, BAT 1+2) on one MCP23017 pin, two lamps on the
+# TLC5947. Each lamp watches one dataref per unit and lights while either unit matches its
+# condition, so OFF shows if any unit is off and FAULT if any unit is faulted.
+# Same wiring and <name>_set script convention as ohp_korry.yaml.
+# Vars:
+#   name label                  slug / HA name
+#   mcp pin                     MCP23017 id and pin number (0-15)
+#   inverted                    optional, default "true" (closed = pressed); "false" for open = pressed
+#   dref_a1 idx_a1              top lamp (FAULT), unit 1: dataref, index (-1 = scalar)
+#   dref_a2 idx_a2              top lamp, unit 2
+#   cond_a ch_a                 C++ expression on `x` for either unit, TLC ch
+#   dref_b1 idx_b1 dref_b2 idx_b2 cond_b ch_b   bottom lamp (ON / OFF), same layout
+# A unit with no value from the sim yet never lights its lamp.
+# Block YAML only: a flow {} map can't hold a ${var} token.
+defaults:
+  inverted: "true"
+
+binary_sensor:
+  - platform: gpio
+    id: ${name}_btn
+    name: ${label}
+    pin:
+      mcp23xxx: ${mcp}
+      number: ${pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${inverted}
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - script.execute:
+          id: ${name}_set
+          pressed: !lambda "return x;"
+
+sensor:
+  - platform: xplane_client
+    dataref: ${dref_a1}
+    index: ${idx_a1}
+    id: ${name}_lt_a1
+    internal: true
+    on_value:
+      - script.execute: ${name}_lamp_a
+  - platform: xplane_client
+    dataref: ${dref_a2}
+    index: ${idx_a2}
+    id: ${name}_lt_a2
+    internal: true
+    on_value:
+      - script.execute: ${name}_lamp_a
+  - platform: xplane_client
+    dataref: ${dref_b1}
+    index: ${idx_b1}
+    id: ${name}_lt_b1
+    internal: true
+    on_value:
+      - script.execute: ${name}_lamp_b
+  - platform: xplane_client
+    dataref: ${dref_b2}
+    index: ${idx_b2}
+    id: ${name}_lt_b2
+    internal: true
+    on_value:
+      - script.execute: ${name}_lamp_b
+
+script:
+  - id: ${name}_lamp_a
+    then:
+      - output.set_level:
+          id: ${name}_a_out
+          level: !lambda |-
+            auto lit = [](float x) { return !std::isnan(x) && (${cond_a}); };
+            return (lit(id(${name}_lt_a1).state) || lit(id(${name}_lt_a2).state)) ? 1.0f : 0.0f;
+  - id: ${name}_lamp_b
+    then:
+      - output.set_level:
+          id: ${name}_b_out
+          level: !lambda |-
+            auto lit = [](float x) { return !std::isnan(x) && (${cond_b}); };
+            return (lit(id(${name}_lt_b1).state) || lit(id(${name}_lt_b2).state)) ? 1.0f : 0.0f;
+
+output:
+  - platform: tlc5947
+    id: ${name}_a_out
+    channel: ${ch_a}
+  - platform: tlc5947
+    id: ${name}_b_out
+    channel: ${ch_b}

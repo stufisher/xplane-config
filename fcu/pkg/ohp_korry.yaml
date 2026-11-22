@@ -1,0 +1,61 @@
+# Reusable: a korry pushbutton on one MCP23017 pin with two status lamps on the TLC5947.
+# Contact to GND, MCP pull-up: pin LOW = pressed. Every change runs the script <name>_set with a
+# bool `pressed`, which the main file defines: latching korries write their position, momentary
+# ones act on pressed only.
+# Each lamp is its own xplane_client listener; it lights while its C++ expression on `x` is true.
+# Vars:
+#   name label                 slug / HA name
+#   mcp pin                    MCP23017 id and pin number (0-15)
+#   inverted                   optional, default "true" (closed = pressed); "false" for open = pressed
+#   dref_a idx_a cond_a ch_a   top lamp (FAULT / AVAIL / FIRE): dataref, index (-1 = scalar), expr, TLC ch
+#   dref_b idx_b cond_b ch_b   bottom lamp (ON / OFF)
+# Lamp state sensors are <name>_lt_a / <name>_lt_b, so press scripts can read the current state.
+# Block YAML only: a flow {} map can't hold a ${var} token.
+defaults:
+  inverted: "true"
+
+binary_sensor:
+  - platform: gpio
+    id: ${name}_btn
+    name: ${label}
+    pin:
+      mcp23xxx: ${mcp}
+      number: ${pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: ${inverted}
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - script.execute:
+          id: ${name}_set
+          pressed: !lambda "return x;"
+
+sensor:
+  - platform: xplane_client
+    dataref: ${dref_a}
+    index: ${idx_a}
+    id: ${name}_lt_a
+    internal: true
+    on_value:
+      - output.set_level:
+          id: ${name}_a_out
+          level: !lambda "return (${cond_a}) ? 1.0f : 0.0f;"
+  - platform: xplane_client
+    dataref: ${dref_b}
+    index: ${idx_b}
+    id: ${name}_lt_b
+    internal: true
+    on_value:
+      - output.set_level:
+          id: ${name}_b_out
+          level: !lambda "return (${cond_b}) ? 1.0f : 0.0f;"
+
+output:
+  - platform: tlc5947
+    id: ${name}_a_out
+    channel: ${ch_a}
+  - platform: tlc5947
+    id: ${name}_b_out
+    channel: ${ch_b}

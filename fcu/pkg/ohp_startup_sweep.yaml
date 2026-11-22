@@ -1,0 +1,103 @@
+# Overhead panel lamp effects, until and when X-Plane connects:
+# - Startup sweep: a band of light runs left to right across the korry lamps, each lamp fading on
+#   (full brightness) and off again as it passes, then runs back right to left, then all stay off.
+#   Runs once per boot and stops for good at the first connect.
+# - Connect pulse: on every connect, all lamps fade up and back down once, then every lamp is set
+#   from the sim again, so lamps that should be off stay off.
+# Needs the xp_connected global, set by xplane_client's connect/disconnect triggers in ohp.yaml.
+#
+# Positions are each korry's x in fcu_mk2/ohp/oh_panel.scad (mm); both lamps of a korry light
+# together.
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          struct Lamp { output::FloatOutput *out; float x; };
+          static const Lamp lamps[] = {
+            // Top row
+            {id(ldg_flap3_b_out), 15.35},
+            {id(fuel_a_out), 43.62}, {id(fuel_b_out), 43.62},
+            {id(pack_a_out), 95.94}, {id(pack_b_out), 95.94},
+            {id(apu_bleed_b_out), 120.74},
+            {id(ext_pwr_a_out), 149.01}, {id(ext_pwr_b_out), 149.01},
+            {id(bat_a_out), 173.81}, {id(bat_b_out), 173.81},
+            {id(y_elec_a_out), 202.08}, {id(y_elec_b_out), 202.08},
+            // APU column, ENG FIRE, ANTI ICE
+            {id(apu_master_a_out), 114.25}, {id(apu_master_b_out), 114.25},
+            {id(apu_start_a_out), 114.25}, {id(apu_start_b_out), 114.25},
+            {id(eng_fire_out), 157.5},
+            {id(wing_ai_a_out), 201}, {id(wing_ai_b_out), 201},
+            {id(eng_ai_a_out), 229}, {id(eng_ai_b_out), 229},
+          };
+          // Every sim value a lamp follows; re-publishing one re-runs its on_value
+          static sensor::Sensor *const sources[] = {
+            id(ldg_flap3_lt_b), id(apu_bleed_lt_b),
+            id(pack_lt_a1), id(pack_lt_a2), id(pack_lt_b1), id(pack_lt_b2),
+            id(bat_lt_a1), id(bat_lt_a2), id(bat_lt_b1), id(bat_lt_b2),
+            id(ext_pwr_lt_a), id(ext_pwr_lt_b), id(y_elec_lt_a), id(y_elec_lt_b),
+            id(apu_master_lt_a), id(apu_master_lt_b), id(apu_start_lt_a), id(apu_start_lt_b),
+            id(wing_ai_lt_a), id(wing_ai_lt_b), id(eng_ai_lt_a), id(eng_ai_lt_b),
+            id(fuel_flt_l1), id(fuel_flt_l2), id(fuel_flt_r1), id(fuel_flt_r2),
+            id(fuel_sw_l1), id(fuel_sw_l2), id(fuel_sw_c_l), id(fuel_sw_c_r), id(fuel_sw_r1), id(fuel_sw_r2),
+            id(eng1_fire), id(eng2_fire),
+          };
+          const float x_min = 15.35, x_max = 229;
+          const float band_mm = 40;        // sweep: half-width of the lit band
+          const uint32_t pass_ms = 1500;   // sweep: one pass across the panel
+          const uint32_t pulse_ms = 400;   // connect pulse: fade up and back down
+
+          static bool was_connected = false;
+          static bool sweep_done = false;  // sweep finished or stopped by the first connect
+          static uint32_t sweep_start = 0;
+          static uint32_t pulse_start = 0;
+          static bool pulsing = false;
+
+          bool connected = id(xp_connected);
+          if (connected && !was_connected) {
+            sweep_done = true;
+            pulsing = true;
+            pulse_start = millis();
+          }
+          was_connected = connected;
+
+          if (pulsing) {
+            uint32_t t = millis() - pulse_start;
+            if (t < pulse_ms) {
+              float half = pulse_ms / 2.0f;
+              float level = t < half ? t / half : (pulse_ms - t) / half;
+              for (const auto &l : lamps)
+                l.out->set_level(level);
+              return;
+            }
+            // Pulse over: clear it, then let each lamp's own logic set it from the sim.
+            // Re-publishing skips any filters, so a repeated value isn't dropped.
+            for (const auto &l : lamps)
+              l.out->set_level(0.0f);
+            for (auto *s : sources)
+              if (s->has_state())
+                s->internal_send_state_to_frontend(s->state);
+            pulsing = false;
+            return;
+          }
+
+          if (sweep_done)
+            return;
+          if (sweep_start == 0)
+            sweep_start = millis();
+          uint32_t elapsed = millis() - sweep_start;
+          if (elapsed >= 2 * pass_ms) {
+            for (const auto &l : lamps)
+              l.out->set_level(0.0f);
+            sweep_done = true;
+            return;
+          }
+
+          // Band centre travels from just off one edge to just off the other, so every lamp fades
+          // fully in and out: left to right on the first pass, back on the second
+          const float from = x_min - band_mm, to = x_max + band_mm;
+          float t = (elapsed % pass_ms) / (float) pass_ms;
+          float centre = elapsed < pass_ms ? from + t * (to - from) : to - t * (to - from);
+          for (const auto &l : lamps) {
+            float d = std::fabs(l.x - centre);
+            l.out->set_level(d >= band_mm ? 0.0f : 1.0f - d / band_mm);
+          }

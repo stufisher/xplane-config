@@ -1,0 +1,20 @@
+# Debug: lights each TLC5947 channel on its own for 2 s, looping 0-23, and logs which lamp
+# ohp.yaml expects there, so the lamp wiring can be checked against the mapping. It overrides the
+# sim-driven lamps while included; remove the include from ohp.yaml once the mapping is confirmed.
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          static const char *const names[24] = {
+            "APU MASTER ON", "APU MASTER FAULT", "APU START ON", "APU START AVAIL",
+            "ENG FAULT", "ENG FIRE", "ANTI ICE WING ON", "ANTI ICE WING FAULT",
+            "ANTI ICE ENG ON", "ANTI ICE ENG FAULT", "(free)", "(free)",
+            "Y ELEC PUMP FAULT", "Y ELEC PUMP ON", "BAT FAULT", "BAT OFF",
+            "EXT PWR AVAIL", "EXT PWR ON", "APU BLEED ON", "PACK FAULT",
+            "PACK OFF", "FUEL PUMPS OFF", "FUEL PUMPS FAULT", "LDG FLAP 3 ON"};
+          static int ch = 0;
+          for (int k = 0; k < 24; k++)
+            id(tlc).set_channel_value(k, 0);
+          id(tlc).set_channel_value(ch, 4095);
+          ESP_LOGI("lamp_test", "ch %2d -> expected %s", ch, names[ch]);
+          ch = (ch + 1) % 24;

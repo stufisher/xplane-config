@@ -1,0 +1,32 @@
+# Debug: logs every raw input change on the three MCP23017s, regardless of which switches are
+# mapped, so each switch can be flipped and traced to its chip and pin. Remove the include from
+# ohp.yaml once the mapping is done.
+# Reads GPIOA/GPIOB (0x12/0x13, IOCON.BANK = 0) every 50 ms. The first pass turns on the pull-ups
+# of all 16 pins (GPPUA/GPPUB 0x0C/0x0D), so unmapped pins don't float, then lists the pins
+# already closed; after that only changes are logged.
+interval:
+  - interval: 50ms
+    then:
+      - lambda: |-
+          static uint16_t last[3];
+          static bool first = true;
+          mcp23017::MCP23017 *chips[3] = {id(mcp_a), id(mcp_b), id(mcp_c)};
+          const char *names[3] = {"mcp_a 0x20", "mcp_b 0x21", "mcp_c 0x22"};
+          for (int c = 0; c < 3; c++) {
+            if (first) {
+              chips[c]->write_byte(0x0C, 0xFF);
+              chips[c]->write_byte(0x0D, 0xFF);
+            }
+            uint8_t a, b;
+            if (!chips[c]->read_byte(0x12, &a) || !chips[c]->read_byte(0x13, &b))
+              continue;
+            uint16_t now = a | (b << 8);
+            uint16_t show = first ? (uint16_t) ~now : (uint16_t) (now ^ last[c]);
+            for (int p = 0; p < 16; p++) {
+              if (show & (1 << p))
+                ESP_LOGI("mcp_debug", "%s pin %2d (GP%c%d) %s", names[c], p, p < 8 ? 'A' : 'B', p % 8,
+                         (now >> p) & 1 ? "open" : "CLOSED");
+            }
+            last[c] = now;
+          }
+          first = false;

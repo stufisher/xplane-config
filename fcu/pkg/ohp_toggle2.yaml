@@ -1,0 +1,43 @@
+# Reusable: a 2-position toggle on one MCP23017 pin, written to the sim as an absolute dataref
+# value. Contact to GND, MCP pull-up: pin LOW = ON. An MTS-103 used here leaves one throw
+# unconnected. Pushed on every change and again on websocket connect (main file calls
+# component.update on <name>_pos).
+# Vars:
+#   name label    slug / HA name
+#   mcp pin       MCP23017 id and pin number (0-15)
+#   dref idx      dataref and array index (-1 = scalar)
+#   v_on v_off    value written for each position
+# Block YAML only: a flow {} map can't hold a ${var} token.
+binary_sensor:
+  - platform: gpio
+    id: ${name}_sw
+    internal: true
+    pin:
+      mcp23xxx: ${mcp}
+      number: ${pin}
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on_off: 20ms
+    on_state:
+      - component.update: ${name}_pos
+
+sensor:
+  - platform: template
+    id: ${name}_pos
+    name: ${label}
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: "return id(${name}_sw).state ? ${v_on} : ${v_off};"
+    on_value:
+      - logger.log:
+          tag: ohp
+          format: "${label} -> ${dref}[${idx}] = %.0f"
+          args: [x]
+      - xplane_client.set_dataref:
+          id: xp
+          dataref: ${dref}
+          index: ${idx}
+          value: !lambda "return x;"

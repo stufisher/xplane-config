@@ -455,6 +455,9 @@ globals:
 
 
 packages:
+  # Startup
+  startup_sweep: !include pkg/fcu_startup_sweep.yaml
+
   # FCU buttons (status + backlight)
   loc:  !include { file: pkg/lit_button.yaml, vars: { name: loc,  label: "FCU LOC",   row: "5", col: "6", command: "AirbusFBW/LOCbutton",      dataref: "AirbusFBW/LOCilluminated", stat_ch: "23", bk_ch: "22" } }
   ap1:  !include { file: pkg/lit_button.yaml, vars: { name: ap1,  label: "FCU AP1",   row: "4", col: "6", command: "toliss_airbus/ap1_push",   dataref: "AirbusFBW/AP1Engage",      stat_ch: "19", bk_ch: "18" } }
