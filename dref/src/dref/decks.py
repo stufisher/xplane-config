@@ -152,15 +152,17 @@ class DeckMapping:
 
 
 class Decks:
-    def __init__(self):
+    def __init__(self, fcu: bool = False):
         self._mapping: list[DeckMapping] = []
         self.load_mapping()
         self._deck = Deck()
         self._deck.key_change_callback = self._key_change_callback
-        self._fcu = FCU()
+        self._fcu = FCU() if fcu else None
         self._udp = REST(self.on_drefs_changed)
-        self._udp.set_subscribed_drefs(self.get_all_drefs() + self._fcu.get_drefs())
-        self._fcu.udp = self._udp
+        fcu_drefs = self._fcu.get_drefs() if self._fcu else []
+        self._udp.set_subscribed_drefs(self.get_all_drefs() + fcu_drefs)
+        if self._fcu:
+            self._fcu.udp = self._udp
         self._current_deck = 0
         self._is_home = True
         self.update_deck()
@@ -179,7 +181,8 @@ class Decks:
             self._mapping.append(DeckMapping(**deck))
 
     def on_drefs_changed(self, drefs: dict[str, any]):
-        self._fcu.on_drefs_changed(drefs)
+        if self._fcu:
+            self._fcu.on_drefs_changed(drefs)
         self.update_faults()
         if self._is_home:
             return
@@ -377,7 +380,8 @@ class Decks:
 
     async def close(self):
         await self._udp.close()
-        self._fcu.close()
+        if self._fcu:
+            self._fcu.close()
         self._deck.close()
 
 
