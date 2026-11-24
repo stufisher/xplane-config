@@ -95,10 +95,10 @@ xplane_client:
         id: xp
         dataref: "AirbusFBW/ALT100_1000"
         value: !lambda "return id(alt_100_1000_sw).state ? 0 : 1;"
-    - xplane_client.set_dataref:
-        id: xp
-        dataref: "AirbusFBW/BaroUnitCapt"
-        value: !lambda "return id(baro_unit_sw).state ? 1 : 0;"
+    # - xplane_client.set_dataref:
+    #     id: xp
+    #     dataref: "AirbusFBW/BaroUnitCapt"
+    #     value: !lambda "return id(baro_unit_sw).state ? 1 : 0;"
   on_websocket_disconnect:                                                                        
     - lambda: 'id(xp_connected) = false;'
 
@@ -356,19 +356,45 @@ display:
     update_interval: never
     id: disp6
     lambda: |-
+      // BARO Unit off: show squawk code, selected digit underlined
+      if (!id(baro_unit_sw).state) {
+        it.print(0, 0, id(roboto_16), "XPDR");
+        if (isnan(id(xpdr_code).state)) {
+          it.print(64, 28, id(dseg), TextAlign::TOP_CENTER, "----");
+          return;
+        }
+        char buf[5];
+        snprintf(buf, sizeof(buf), "%04d", (int) id(xpdr_code).state % 10000);
+        // Centred like the baro value: same origin TextAlign::TOP_CENTER would pick
+        int w, xo, bl, h;
+        id(dseg)->measure(buf, &w, &xo, &bl, &h);
+        int x0 = 64 - (w + xo) / 2;
+        it.print(x0, 28, id(dseg), buf);
+        // Underline spans the selected digit. measure() gives a string's width from its first
+        // glyph's left bearing (xo), so width + xo is where its advance ends.
+        int n = id(xpdr_digit);
+        std::string text(buf);
+        id(dseg)->measure(text.substr(0, n + 1).c_str(), &w, &xo, &bl, &h);
+        int right = w;  // advance end (w + xo), less the digit's right bearing (taken as xo)
+        int left = xo;
+        if (n > 0) {
+          int w0, xo0;
+          id(dseg)->measure(text.substr(0, n).c_str(), &w0, &xo0, &bl, &h);
+          left = w0 + xo0 + xo;  // previous digits' advance, plus this digit's left bearing
+        }
+        it.filled_rectangle(x0 + left, 62, right - left, 2);
+        return;
+      }
       //it.print(0, 0, id(roboto_16), "QFE");
       it.print(0, 0, id(roboto_16), "     QNH");
+      // Value centred on the 128 px display
       if (isnan(id(baro).state)) {
-        it.print(0, 28, id(dseg), "----");
+        it.print(64, 28, id(dseg), TextAlign::TOP_CENTER, "----");
       } else {
         if (!isnan(id(baro_std).state) && id(baro_std).state) {
-          it.printf(0, 28, id(dseg), "5td");
+          it.printf(64, 28, id(dseg), TextAlign::TOP_CENTER, "5td");
         } else {
-          if (id(baro_unit_sw).state) {
-            it.printf(0, 28, id(dseg), "%04.0f", id(baro).state);
-          } else {
-            it.printf(0, 28, id(dseg), "%.2f", id(baro).state / 33.864f);   // inHg
-          }
+          it.printf(64, 28, id(dseg), TextAlign::TOP_CENTER, "%04.0f", id(baro).state);   // hPa
         }
       }
   - platform: ssd1306_i2c
@@ -452,6 +478,11 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
+  # Squawk digit edited by the BARO encoder (0 = leftmost)
+  - id: xpdr_digit
+    type: int
+    restore_value: no
+    initial_value: "0"
 
 
 packages:
@@ -931,6 +962,13 @@ sensor:
     id: baro_std
     on_value:
       - component.update: disp6
+  - platform: xplane_client
+    xplane_client_id: xp
+    dataref: "sim/cockpit/radios/transponder_code"
+    name: XPDR Code
+    id: xpdr_code
+    on_value:
+      - component.update: disp6
 
   - platform: xplane_client
     xplane_client_id: xp
@@ -1137,14 +1175,47 @@ sensor:
     name: "BARO Encoder"
     pin_a: 1
     pin_b: 0
+    # BARO Unit off: turning changes the selected squawk digit 0-9
     on_clockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/instruments/barometer_up"
+      - if:
+          condition: { lambda: "return !id(baro_unit_sw).state;" }
+          then:
+            - if:
+                condition: { lambda: "return !isnan(id(xpdr_code).state);" }
+                then:
+                  - xplane_client.set_dataref:
+                      id: xp
+                      dataref: "sim/cockpit/radios/transponder_code"
+                      value: !lambda |-
+                        int code = (int) id(xpdr_code).state;
+                        int p = 1;
+                        for (int i = id(xpdr_digit); i < 3; i++) p *= 10;
+                        int d = (code / p) % 10;
+                        return code - d * p + ((d + 1) % 10) * p;
+          else:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/barometer_up"
     on_anticlockwise:
-      - xplane_client.send_command:
-          id: xp
-          command: "sim/instruments/barometer_down"
+      - if:
+          condition: { lambda: "return !id(baro_unit_sw).state;" }
+          then:
+            - if:
+                condition: { lambda: "return !isnan(id(xpdr_code).state);" }
+                then:
+                  - xplane_client.set_dataref:
+                      id: xp
+                      dataref: "sim/cockpit/radios/transponder_code"
+                      value: !lambda |-
+                        int code = (int) id(xpdr_code).state;
+                        int p = 1;
+                        for (int i = id(xpdr_digit); i < 3; i++) p *= 10;
+                        int d = (code / p) % 10;
+                        return code - d * p + ((d + 9) % 10) * p;
+          else:
+            - xplane_client.send_command:
+                id: xp
+                command: "sim/instruments/barometer_down"
 
   - platform: mcp23017_encoder
     mcp23017_encoder_id: mcp_enc_b
@@ -1376,11 +1447,18 @@ binary_sensor:
         input: true
         pullup: true
       inverted: true
+    # BARO Unit off: push cycles the selected squawk digit
     on_press: 
       then:
-      - xplane_client.send_command:
-          id: xp
-          command: "toliss_airbus/capt_baro_push"
+      - if:
+          condition: { lambda: "return !id(baro_unit_sw).state;" }
+          then:
+            - lambda: "id(xpdr_digit) = (id(xpdr_digit) + 1) % 4;"
+            - component.update: disp6
+          else:
+            - xplane_client.send_command:
+                id: xp
+                command: "toliss_airbus/capt_baro_push"
 
   - platform: gpio
     name: "BARO Pull"
@@ -1391,11 +1469,15 @@ binary_sensor:
         input: true
         pullup: true
       inverted: true
+    # Ignored in squawk mode (BARO Unit off)
     on_press: 
       then:
-      - xplane_client.send_command:
-          id: xp
-          command: "toliss_airbus/capt_baro_pull"
+      - if:
+          condition: { lambda: "return id(baro_unit_sw).state;" }
+          then:
+            - xplane_client.send_command:
+                id: xp
+                command: "toliss_airbus/capt_baro_pull"
 
 
   - platform: gpio
@@ -1425,17 +1507,17 @@ binary_sensor:
       inverted: true
     on_press: 
       then:
-        - xplane_client.set_dataref:
-            id: xp
-            dataref: "AirbusFBW/BaroUnitCapt"
-            value: 1
+        # - xplane_client.set_dataref:
+        #     id: xp
+        #     dataref: "AirbusFBW/BaroUnitCapt"
+        #     value: 1
         - component.update: disp6
     on_release: 
       then:
-        - xplane_client.set_dataref:
-            id: xp
-            dataref: "AirbusFBW/BaroUnitCapt"
-            value: 0
+        # - xplane_client.set_dataref:
+        #     id: xp
+        #     dataref: "AirbusFBW/BaroUnitCapt"
+        #     value: 0
         - component.update: disp6
 
 
