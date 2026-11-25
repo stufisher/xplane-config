@@ -148,6 +148,17 @@ def challenge(metar, runway_headings) -> Challenge:
         if ceiling < 500:
             hazards.add("obscured")
 
+    # Cumulonimbus and towering cumulus, even with no storm in the weather
+    cloud_types = {cloud for _, _, cloud in metar.sky if cloud}
+    if "CB" in cloud_types:
+        score += 2
+        notes.append("CB")
+        hazards.add("storm")
+    elif "TCU" in cloud_types:
+        score += 1
+        notes.append("TCU")
+        hazards.add("rain")
+
     for intensity, descriptor, precip, obscuration, _ in metar.weather:
         precip = precip or ""
         if descriptor == "TS":
