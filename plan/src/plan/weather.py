@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from itertools import islice
 import logging
 import math
 import os
+import re
 import time
 
 from metar import Metar
@@ -10,6 +12,10 @@ from metar import Metar
 from .xplane import XPlanePaths
 
 logger = logging.getLogger(__name__)
+
+# Reports older than this, against the time of the METAR file, are ignored;
+# stations that stopped reporting stay in X-Plane's file with their last one
+MAX_METAR_AGE = timedelta(minutes=90)
 
 
 def sorted_listing_by_creation_time(directory):
@@ -32,6 +38,8 @@ class Weather:
     def __init__(self, path=None):
         self._path = path if path is not None else XPlanePaths().real_weather
         self._weather_cache = {}
+        # UTC time in the name of the METAR file in use
+        self._file_time = None
         self._last_update = 0
         self._update_weather()
 
@@ -45,6 +53,8 @@ class Weather:
                 metars.append(file)
 
         last = metars[-1]
+        stamp = re.search(r"(\d{4})-(\d\d)-(\d\d)-(\d\d)\.(\d\d)", last)
+        self._file_time = datetime(*map(int, stamp.groups())) if stamp else None
         for lines in get_lines_iterator(os.path.join(self._path, last)):
             metar = lines[1].split(" ")
             self._weather_cache[metar[0]] = lines[1].strip()
@@ -63,7 +73,25 @@ class Weather:
         except KeyError:
             logger.warning(f"Could not get weather for {airport}")
             return
-        return Metar.Metar("METAR " + metar_string)
+        if self._file_time is None:
+            month = year = None
+        else:
+            # Reports carry only the day, so the month comes from the file; a
+            # day after the file's is from the month before
+            month, year = self._file_time.month, self._file_time.year
+            day = re.match(r"\S+ (\d\d)\d{4}Z", metar_string)
+            if day and int(day.group(1)) > self._file_time.day:
+                month, year = (12, year - 1) if month == 1 else (month - 1, year)
+        try:
+            metar = Metar.Metar("METAR " + metar_string, month=month, year=year)
+        except Metar.ParserError:
+            # Some stations send reports with missing groups the parser rejects
+            logger.debug(f"Could not parse weather for {airport}")
+            return None
+        if self._file_time and metar.time and self._file_time - metar.time > MAX_METAR_AGE:
+            logger.debug(f"Ignoring {airport} report from {metar.time:%d %H:%M}Z")
+            return None
+        return metar
 
 
 def metar_wind(metar):
