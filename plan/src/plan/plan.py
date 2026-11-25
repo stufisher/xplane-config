@@ -207,7 +207,7 @@ class Plan:
                 row_id = await self._rest.find_row_in_display(star)
                 if row_id is not None:
                     await self._rest.press_button(f"{row_id+1}L")
-                    await self._select_via_and_transition()
+                    await self._select_star_transition()
                 else:
                     logger.warning(f"Could not set departure STAR `{star}`")
             else:
@@ -245,12 +245,11 @@ class Plan:
             else:
                 logger.info("Not removing discontinuity, part of manual")
 
-    async def _select_via_and_transition(self):
-        """After the STAR the ARRIVAL page offers the approach vias on the left,
-        then the STAR transitions on the right"""
-        # NO VIA is the first entry, at 3L
-        if not (self._plan.APPTRANS and await self._select_via(self._plan.APPTRANS)):
-            await self._rest.press_button("3L")
+    async def _select_star_transition(self):
+        """After the STAR the ARRIVAL page lists its transitions on the right.
+
+        The approach via is chosen by the MCDU itself, so it is not entered.
+        """
         # NO TRANS is the first entry, at 3R
         if not (
             self._plan.STARTRANS
@@ -266,16 +265,6 @@ class Plan:
             logger.warning(f"Could not set {kind} transition `{transition}`")
             return False
         await self._rest.press_button(f"{row_id+1}R")
-        return True
-
-    async def _select_via(self, via: str) -> bool:
-        """Pick the approach transition from the VIA list on the left"""
-        logger.info(f"MCDU: Setting approach via {via}")
-        row_id = await self._rest.find_row_in_display(via, side="L")
-        if row_id is None:
-            logger.warning(f"Could not set approach via `{via}`")
-            return False
-        await self._rest.press_button(f"{row_id+1}L")
         return True
 
     async def mcdu_perf(
