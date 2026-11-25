@@ -15,6 +15,8 @@ from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
+from .generate import Generator
+from .generate_view import GenerateDialog
 from .places import download_missing
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
@@ -136,6 +138,7 @@ class UI:
         self._apt = APT(paths)
         self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
         self._udp = UDP(self._apt)
+        self._generator = Generator(paths)
         self._background_running = True
         self._map_markers = []
         self._map_lines = []
@@ -202,6 +205,11 @@ class UI:
                                 on_click=lambda e: self.update_plans(),
                             )
                             plan_refresh_button.tooltip("Refresh plans")
+                            plan_generate_button = ui.button(
+                                icon="add",
+                                on_click=lambda e: self._generate_dialog.open(),
+                            )
+                            plan_generate_button.tooltip("Generate a new plan")
                     with Row().classes("flex-nowrap"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
@@ -359,6 +367,12 @@ class UI:
                 )
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
+        self._generate_dialog = GenerateDialog(
+            self._generator,
+            location=self.aircraft_position,
+            metar=self.metar,
+            on_generated=self.plan_generated,
+        )
 
         self.update_plans()
         ui.timer(10, lambda: self._background_task())
@@ -370,6 +384,24 @@ class UI:
             opts[plan.file_path] = f"{plan.departure_board} -> {plan.destination_board}"
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
+
+    def aircraft_position(self):
+        loc = self._plan.location
+        if loc.latitude is None:
+            return None
+        return loc.latitude, loc.longitude
+
+    def metar(self, icao: str):
+        """Latest METAR from the sim's real weather, None without one"""
+        try:
+            return self._plan.forecast(icao)
+        except Exception:
+            logger.debug(f"No weather for {icao}")
+            return None
+
+    def plan_generated(self, path: str):
+        self.update_plans()
+        self._plan_select.value = path
 
     async def _background_task(self):
         self.update_weather()

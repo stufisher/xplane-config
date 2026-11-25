@@ -16,3 +16,4 @@ dependencies = [
 
 [project.scripts]
 plan-ui = "plan.ui:main"
+plan-gen = "plan.generate:main"

@@ -34,6 +34,10 @@ class XPlanePaths:
         return self._join("Resources", "default data", "earth_nav.dat")
 
     @property
+    def earth_awy(self):
+        return self._join("Resources", "default data", "earth_awy.dat")
+
+    @property
     def apt(self):
         return self._join(
             "Global Scenery", "Global Airports", "Earth nav data", "apt.dat"

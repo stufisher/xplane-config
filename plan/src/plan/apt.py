@@ -175,34 +175,51 @@ class APT:
             logger.info(f"Couldnt find opposite runway for {icao_code} {name}")
             return
 
-        phi1 = deg2rad(runway.lat)
-        phi2 = deg2rad(opposite_runway.lat)
-        lam1 = deg2rad(runway.lon)
-        lam2 = deg2rad(opposite_runway.lon)
+        return heading_and_length(runway, opposite_runway)
 
-        heading = (
-            math.atan2(
-                math.sin(lam2 - lam1) * math.cos(phi2),
-                math.cos(phi1) * math.sin(phi2)
-                - math.sin(phi1) * math.cos(phi2) * math.cos(lam2 - lam1),
-            )
-            * 180
-            / math.pi
+
+def longest_runway_m(apt_path: str, icao_code: str):
+    """Longest runway at the airport in apt.dat, in metres, None if not found"""
+    runways, _ = parse_airport_data(apt_path, icao_code)
+    lengths = [
+        heading_and_length(runway, opposite).length
+        for runway in runways.values()
+        for opposite in runways.values()
+        if opposite.rwy_idx == runway.rwy_idx and opposite.rwy_dir > runway.rwy_dir
+    ]
+    return max(lengths, default=None)
+
+
+def heading_and_length(runway: Runway, opposite_runway: Runway) -> HeadingLength:
+    """Heading from runway's threshold to the opposite one, and the length between"""
+    phi1 = deg2rad(runway.lat)
+    phi2 = deg2rad(opposite_runway.lat)
+    lam1 = deg2rad(runway.lon)
+    lam2 = deg2rad(opposite_runway.lon)
+
+    heading = (
+        math.atan2(
+            math.sin(lam2 - lam1) * math.cos(phi2),
+            math.cos(phi1) * math.sin(phi2)
+            - math.sin(phi1) * math.cos(phi2) * math.cos(lam2 - lam1),
         )
-        magnetic_offset = 11.5
-        heading = int(math.fmod(heading + 360, 360))
+        * 180
+        / math.pi
+    )
+    magnetic_offset = 11.5
+    heading = int(math.fmod(heading + 360, 360))
 
-        R = 6371e3
-        delphi = phi2 - phi1
-        dellam = lam2 - lam1
+    R = 6371e3
+    delphi = phi2 - phi1
+    dellam = lam2 - lam1
 
-        a = math.sin(delphi / 2) * math.sin(delphi / 2) + math.cos(phi1) * math.cos(
-            phi2
-        ) * math.sin(dellam / 2) * math.sin(dellam / 2)
+    a = math.sin(delphi / 2) * math.sin(delphi / 2) + math.cos(phi1) * math.cos(
+        phi2
+    ) * math.sin(dellam / 2) * math.sin(dellam / 2)
 
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        length = round(R * c)
-        return HeadingLength(heading=heading, length=length, elevation=runway.elevation)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    length = round(R * c)
+    return HeadingLength(heading=heading, length=length, elevation=runway.elevation)
 
 
 if __name__ == "__main__":
