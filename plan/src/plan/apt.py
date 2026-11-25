@@ -113,16 +113,20 @@ def parse_airport_data(apt_path: str, icao_code: str):
 
         elif line.startswith("1300 "):
             gate_fields = line.split()
-            gates[gate_fields[6]] = Gate(
-                lat=gate_fields[1],
-                lon=gate_fields[2],
-                ramp_idx=ramp_idx,
-                heading=gate_fields[3],
-                location_type=gate_fields[4],
-                aircraft_type=gate_fields[5],
-                name=gate_fields[6],
-                elevation=elevation,
-            )
+            # Some ramps have no name or aircraft types; they still count
+            # towards the ramp index
+            if len(gate_fields) >= 5:
+                name = gate_fields[6] if len(gate_fields) > 6 else f"ramp {ramp_idx}"
+                gates[name] = Gate(
+                    lat=gate_fields[1],
+                    lon=gate_fields[2],
+                    ramp_idx=ramp_idx,
+                    heading=gate_fields[3],
+                    location_type=gate_fields[4],
+                    aircraft_type=gate_fields[5] if len(gate_fields) > 5 else "",
+                    name=name,
+                    elevation=elevation,
+                )
             ramp_idx += 1
     return runways, gates
 
