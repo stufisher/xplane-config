@@ -69,13 +69,23 @@ class GenerateDialog:
                 on_select=self._select_destination,
             ).props("dense virtual-scroll").style("height: 260px")
 
-            with ui.row().classes("w-full no-wrap"):
-                self._dep_rwy = ui.select([AUTO], label="Dep runway", value=AUTO)
+            # Equal columns, each field filling its own, so no label is clipped
+            with ui.grid(columns=4).classes("w-full gap-4"):
+                self._dep_rwy = ui.select(
+                    [AUTO], label="Departure runway", value=AUTO
+                ).classes("w-full")
                 self._des_rwy = ui.select(
-                    [AUTO], label="Arr runway", value=AUTO, on_change=self._load_approaches
-                )
-                self._approach = ui.select([AUTO], label="Approach", value=AUTO)
-                self._cruise = ui.input("Cruise", placeholder="auto", prefix="FL")
+                    [AUTO],
+                    label="Arrival runway",
+                    value=AUTO,
+                    on_change=self._load_approaches,
+                ).classes("w-full")
+                self._approach = ui.select(
+                    [AUTO], label="Approach", value=AUTO
+                ).classes("w-full")
+                self._cruise = ui.input(
+                    "Cruise", placeholder="auto", prefix="FL"
+                ).classes("w-full")
             self._summary = ui.label().classes("text-sm")
             with ui.row():
                 self._generate_button = ui.button("Generate", on_click=self._generate)
