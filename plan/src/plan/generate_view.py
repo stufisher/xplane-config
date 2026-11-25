@@ -76,18 +76,22 @@ class PlannerDialog:
         self._rows = []
         self._destination = None
 
+        # Scrolls rather than clipping when the app window is short
         with ui.dialog() as self._dialog, ui.card().style(
-            "min-width: 820px; max-width: 95vw"
+            "min-width: 820px; max-width: 95vw; max-height: 95vh; overflow-y: auto"
         ):
-            with ui.tabs().classes("w-full") as tabs:
-                plans_tab = ui.tab("Plans")
-                new_tab = ui.tab("New plan")
+            with ui.row().classes("w-full items-center no-wrap"):
+                with ui.tabs().classes("flex-1") as tabs:
+                    plans_tab = ui.tab("Plans")
+                    new_tab = ui.tab("New plan")
+                ui.button(icon="close", on_click=self._dialog.close).props(
+                    "flat round dense"
+                ).tooltip("Close")
             with ui.tab_panels(tabs, value=plans_tab).classes("w-full"):
-                with ui.tab_panel(plans_tab):
+                with ui.tab_panel(plans_tab).classes("p-1"):
                     self._build_plans()
-                with ui.tab_panel(new_tab):
+                with ui.tab_panel(new_tab).classes("p-1"):
                     self._build_generate()
-            ui.button("Close", on_click=self._dialog.close)
 
     async def open(self):
         self._dialog.open()
@@ -124,7 +128,7 @@ class PlannerDialog:
             row_key="path",
             selection="single",
             on_select=self._select_plan,
-        ).props("dense virtual-scroll").style("height: 380px")
+        ).props("dense virtual-scroll").style("height: 320px")
         colour_weather_cells(self._plans_table, "dep_wx", "arr_wx")
 
     def _plan_row(self, plan):
@@ -213,7 +217,7 @@ class PlannerDialog:
             row_key="icao",
             selection="single",
             on_select=self._select_destination,
-        ).props("dense virtual-scroll").style("height: 260px")
+        ).props("dense virtual-scroll").style("height: 160px")
         colour_weather_cells(self._table, "wx")
 
         # Equal columns, each field filling its own, so no label is clipped
