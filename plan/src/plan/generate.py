@@ -15,7 +15,7 @@ import threading
 
 from airports.airport_data import airports as AIRPORTS
 
-from .apt import longest_runway_m
+from .apt import heading_and_length, parse_airport_data
 from .fms import dms2deg, runway_matches
 from .places import Places, download_missing
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
@@ -359,7 +359,7 @@ class Generator:
         self._paths = paths
         self._places = places or Places()
         self._nav = None
-        self._runway_lengths = {}
+        self._apt_runways = {}
         # The UI plans from worker threads, the navdata must only load once
         self._nav_lock = threading.Lock()
         self._airports = {}
@@ -443,15 +443,39 @@ class Generator:
     def runways(self, icao):
         return sorted(self.airport(icao).runways)
 
+    def _runway_ends(self, icao):
+        """apt.dat runway ends by name (27, 09L), parsed once per airport"""
+        if icao not in self._apt_runways:
+            try:
+                self._apt_runways[icao], _ = parse_airport_data(self._paths.apt, icao)
+            except OSError:
+                self._apt_runways[icao] = {}
+        return self._apt_runways[icao]
+
+    def runway_length_ft(self, icao, runway):
+        """Length of runway (RW27 or 27) in the sim's apt.dat, None when unknown"""
+        ends = self._runway_ends(icao)
+        end = ends.get(runway.removeprefix("RW")) if runway else None
+        if end is None:
+            return None
+        for other in ends.values():
+            if other.rwy_idx == end.rwy_idx and other.rwy_dir != end.rwy_dir:
+                return round(heading_and_length(end, other).length * 3.28084)
+        return None
+
     def longest_runway_ft(self, icao):
         """Longest runway in the sim's apt.dat, None when unknown"""
-        if icao not in self._runway_lengths:
-            try:
-                metres = longest_runway_m(self._paths.apt, icao)
-            except OSError:
-                metres = None
-            self._runway_lengths[icao] = round(metres * 3.28084) if metres else None
-        return self._runway_lengths[icao]
+        lengths = [
+            self.runway_length_ft(icao, name) for name in self._runway_ends(icao)
+        ]
+        return max((length for length in lengths if length), default=None)
+
+    def distance_nm(self, a, b):
+        """Great circle distance between two airports, None if either is unknown"""
+        if a not in self._airports or b not in self._airports:
+            return None
+        pa, pb = self._airports[a], self._airports[b]
+        return nm((pa["latitude"], pa["longitude"]), (pb["latitude"], pb["longitude"]))
 
     def approaches(self, icao, runway):
         """Approach names to runway, most preferred (ILS, then RNAV) first."""

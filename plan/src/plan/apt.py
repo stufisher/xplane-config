@@ -178,18 +178,6 @@ class APT:
         return heading_and_length(runway, opposite_runway)
 
 
-def longest_runway_m(apt_path: str, icao_code: str):
-    """Longest runway at the airport in apt.dat, in metres, None if not found"""
-    runways, _ = parse_airport_data(apt_path, icao_code)
-    lengths = [
-        heading_and_length(runway, opposite).length
-        for runway in runways.values()
-        for opposite in runways.values()
-        if opposite.rwy_idx == runway.rwy_idx and opposite.rwy_dir > runway.rwy_dir
-    ]
-    return max(lengths, default=None)
-
-
 def heading_and_length(runway: Runway, opposite_runway: Runway) -> HeadingLength:
     """Heading from runway's threshold to the opposite one, and the length between"""
     phi1 = deg2rad(runway.lat)

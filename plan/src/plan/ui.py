@@ -16,7 +16,7 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator
-from .generate_view import GenerateDialog
+from .generate_view import PlannerDialog
 from .places import download_missing
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
@@ -205,11 +205,10 @@ class UI:
                                 on_click=lambda e: self.update_plans(),
                             )
                             plan_refresh_button.tooltip("Refresh plans")
-                            plan_generate_button = ui.button(
-                                icon="add",
-                                on_click=lambda e: self._generate_dialog.open(),
+                            planner_button = ui.button(
+                                icon="table_view", on_click=self.open_planner
                             )
-                            plan_generate_button.tooltip("Generate a new plan")
+                            planner_button.tooltip("Plans table and new plans")
                     with Row().classes("flex-nowrap"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
@@ -367,10 +366,12 @@ class UI:
                 )
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
-        self._generate_dialog = GenerateDialog(
+        self._planner = PlannerDialog(
             self._generator,
+            plans=lambda: self._plan.plans,
             location=self.aircraft_position,
             metar=self.metar,
+            on_select=self.show_plan,
             on_generated=self.plan_generated,
         )
 
@@ -399,9 +400,15 @@ class UI:
             logger.debug(f"No weather for {icao}")
             return None
 
+    async def open_planner(self):
+        await self._planner.open()
+
+    def show_plan(self, path: str):
+        self._plan_select.value = path
+
     def plan_generated(self, path: str):
         self.update_plans()
-        self._plan_select.value = path
+        self.show_plan(path)
 
     async def _background_task(self):
         self.update_weather()
