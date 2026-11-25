@@ -207,7 +207,6 @@ class Plan:
                 row_id = await self._rest.find_row_in_display(star)
                 if row_id is not None:
                     await self._rest.press_button(f"{row_id+1}L")
-                    await self._select_star_transition()
                 else:
                     logger.warning(f"Could not set departure STAR `{star}`")
             else:
@@ -245,20 +244,8 @@ class Plan:
             else:
                 logger.info("Not removing discontinuity, part of manual")
 
-    async def _select_star_transition(self):
-        """After the STAR the ARRIVAL page lists its transitions on the right.
-
-        The approach via is chosen by the MCDU itself, so it is not entered.
-        """
-        # NO TRANS is the first entry, at 3R
-        if not (
-            self._plan.STARTRANS
-            and await self._select_transition(self._plan.STARTRANS, "STAR")
-        ):
-            await self._rest.press_button("3R")
-
     async def _select_transition(self, transition: str, kind: str) -> bool:
-        """Pick a SID or STAR enroute transition from the TRANS column on the right"""
+        """Pick a SID enroute transition from the TRANS column on the right"""
         logger.info(f"MCDU: Setting {kind} transition {transition}")
         row_id = await self._rest.find_row_in_display(transition, side="R")
         if row_id is None:
