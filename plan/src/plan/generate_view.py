@@ -225,7 +225,16 @@ class PlannerDialog:
 
     def _build_generate(self):
         with ui.row().classes("w-full items-center no-wrap"):
-            self._departure = ui.input("Departure", placeholder="ICAO").props("dense")
+            # Searchable by city, IATA, ICAO or airport name
+            self._departure = (
+                ui.select(
+                    self._generator.airport_choices(),
+                    label="Departure",
+                    with_input=True,
+                )
+                .props("dense")
+                .style("min-width: 280px")
+            )
             here = ui.button(icon="my_location", on_click=self._use_location)
             here.tooltip("Nearest airport to the aircraft")
             with ui.column().classes("flex-1 gap-0"):

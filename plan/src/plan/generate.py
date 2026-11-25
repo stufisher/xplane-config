@@ -405,6 +405,16 @@ class Generator:
         info = self._airports.get(icao, {})
         return place.iata or info.get("iata") or "", place.city or ""
 
+    def airport_choices(self):
+        """ICAO -> "City IATA (ICAO) name" for every plannable airport, by label"""
+        choices = {}
+        for icao in self._candidates:
+            iata, city = self.board(icao)
+            name = self._airports[icao].get("airport", "")
+            label = " ".join(part for part in (city, iata) if part)
+            choices[icao] = f"{label} ({icao}) {name}".strip()
+        return dict(sorted(choices.items(), key=lambda item: item[1]))
+
     def nearest_airport(self, lat, lon):
         """Closest airport with scheduled service and procedures in the sim."""
         if not self._candidates:
