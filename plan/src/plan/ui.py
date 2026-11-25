@@ -15,7 +15,7 @@ from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
-from .generate import Generator
+from .generate import Generator, runway_heading
 from .enroute import (
     enroute_hazards,
     enroute_text,
@@ -26,6 +26,7 @@ from .enroute import (
     route_points,
 )
 from .generate_view import PlannerDialog, severity_colour
+from .weather import challenge
 from .grib import WindsAloft, latest_grib
 from .places import download_missing
 from .to.view import takeoff_svg
@@ -624,7 +625,9 @@ class UI:
             self.dep_time.set_text(
                 f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
-            self.dep_weather.content = weather_text(self._plan.weather_dep)
+            self._show_weather(
+                self.dep_weather, self._plan.weather_dep, self._plan.current.DEPRWY
+            )
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
@@ -632,10 +635,19 @@ class UI:
             self.des_time.set_text(
                 f"{self._plan.current.ADES} {self._plan.weather_des.time:%H:%M}"
             )
-            self.des_weather.content = weather_text(self._plan.weather_des)
+            self._show_weather(
+                self.des_weather, self._plan.weather_des, self._plan.current.DESRWY
+            )
         else:
             self.des_time.set_text(f"{self._plan.current.ADES} --:--")
             self.des_weather.content = "N/A"
+
+    def _show_weather(self, element, metar, runway):
+        """METAR text led by the hazard summary, coloured by how hard it is"""
+        wx = challenge(metar, [runway_heading(runway)] if runway else [])
+        summary = f"{wx.icon} {wx.notes}".strip()
+        element.content = f"{summary} · {weather_text(metar)}"
+        element.style(f"color: {severity_colour(wx.score)}")
 
     def update_time(self):
         if not self._time_label:
