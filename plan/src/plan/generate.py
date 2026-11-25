@@ -32,6 +32,9 @@ DCT_RADIUS = 150
 DCT_FACTOR = 1.5
 # Cost of switching airway, nm, so routes stay on one airway like filed routes
 AIRWAY_CHANGE = 20
+# Cost of flying a SID or STAR transition, nm, so one is only named when it
+# shortens the route or is the way onto the airways
+TRANSITION_COST = 5
 # Approach types in order of preference, by the first letter of its name
 APP_PREFERENCE = {"I": 0, "R": 1, "H": 1, "J": 1, "L": 2, "X": 2, "G": 2}
 # Block time estimate: taxi and climb allowance plus cruise at 450 kt
@@ -267,7 +270,7 @@ class Airport:
         return rw_legs, common, enroute
 
     def sid_options(self, runway):
-        """(name, procedure legs, transition legs flown as plain waypoints)."""
+        """(name, procedure legs, enroute transition legs, transition name)."""
         options = []
         for name, transitions in self.procs["SID"].items():
             split = self._split(transitions, runway)
@@ -278,14 +281,14 @@ class Airport:
             if not base and not enroute:
                 continue
             if base or not enroute:
-                options.append((name, base, []))
-            for legs in enroute.values():
+                options.append((name, base, [], None))
+            for trans, legs in enroute.items():
                 extra = [leg for leg in legs if not base or leg != base[-1]]
-                options.append((name, base, extra))
+                options.append((name, base, extra, trans))
         return [o for o in options if o[1] or o[2]]
 
     def star_options(self, runway):
-        """(name, transition legs flown as plain waypoints, procedure legs)."""
+        """(name, enroute transition legs, procedure legs, transition name)."""
         options = []
         for name, transitions in self.procs["STAR"].items():
             split = self._split(transitions, runway)
@@ -294,10 +297,10 @@ class Airport:
             rw_legs, common, enroute = split
             base = common + [leg for leg in rw_legs if not common or leg != common[-1]]
             if base:
-                options.append((name, [], base))
-            for legs in enroute.values():
+                options.append((name, [], base, None))
+            for trans, legs in enroute.items():
                 extra = [leg for leg in legs if not base or leg != base[0]]
-                options.append((name, extra, base))
+                options.append((name, extra, base, trans))
         return [o for o in options if o[1] or o[2]]
 
     def approaches(self, runway):
@@ -545,7 +548,8 @@ class Generator:
             legs = opt[1] + opt[2]
             exit_node = nav.graph_node(*legs[-1])
             nav.pos.setdefault(exit_node, dep.fix_pos(legs[-1]))
-            start.append((exit_node, dep.path_length(legs, threshold), opt))
+            cost = dep.path_length(legs, threshold) + (TRANSITION_COST if opt[3] else 0)
+            start.append((exit_node, cost, opt))
         if not sid_opts:
             for n in near(dep.pos, 50):
                 start.append((n, nm(dep.pos, nav.pos[n]), None))
@@ -567,7 +571,7 @@ class Generator:
             end = legs[-1]
             # A STAR that ends where an approach transition starts joins up cleanly
             link = 0 if end[0] in app_entries else 10 + nm(des.fix_pos(end), des_threshold)
-            cost = des.path_length(legs) + link
+            cost = des.path_length(legs) + link + (TRANSITION_COST if opt[3] else 0)
             if entry not in finish or cost < finish[entry][0]:
                 finish[entry] = (cost, opt)
             # Entries off the airway network are reached by direct legs
@@ -674,23 +678,28 @@ class Generator:
         path.reverse()
         star_opt = finish[goal[0]][1]
 
+        # The approach transition that starts where the STAR ends
+        app_trans = None
+        if star_opt and app:
+            star_end = (star_opt[1] + star_opt[2])[-1][0]
+            app_trans = star_end if star_end in app_entries else None
+
         return self._build(
-            dep, des, dep_rwy, des_rwy, sid_opt, path, star_opt, app, cruise
+            dep, des, dep_rwy, des_rwy, sid_opt, path, star_opt, app, app_trans, cruise
         )
 
-    def _build(self, dep, des, dep_rwy, des_rwy, sid_opt, path, star_opt, app, cruise):
+    def _build(
+        self, dep, des, dep_rwy, des_rwy, sid_opt, path, star_opt, app, app_trans, cruise
+    ):
         nav = self.nav
-        # Enroute waypoints: SID transition, airways, STAR transition
+        # Enroute waypoints between the procedures; SID and STAR transitions
+        # are named in the header and flown by the FMS as part of the procedure
         enroute = []
-        if sid_opt:
-            for leg in sid_opt[2][:-1]:
-                enroute.append((leg[0], leg[2], "DRCT", dep.fix_pos(leg)))
         current = None
         for i, (node, label) in enumerate(path):
             if i == 0 and len(path) > 1 and sid_opt:
-                # The SID ends here, the FMS flies it as part of the procedure
-                if not sid_opt[2]:
-                    continue
+                # The SID and its transition end here
+                continue
             if label and label != "DRCT":
                 names = label.split("-")
                 current = current if current in names else names[0]
@@ -698,9 +707,6 @@ class Generator:
             else:
                 via = "DRCT"
             enroute.append((node[0], node[2], via, nav.pos[node]))
-        if star_opt:
-            for leg in star_opt[1][1:]:
-                enroute.append((leg[0], leg[2], "DRCT", des.fix_pos(leg)))
         # Drop repeats where procedure and airway meet
         dedup = []
         for wpt in enroute:
@@ -709,8 +715,13 @@ class Generator:
         enroute = dedup
 
         # Distance along the whole flight for the altitude profile
-        sid_pts = [dep.fix_pos(leg) for leg in sid_opt[1]] if sid_opt else []
-        star_pts = [des.fix_pos(leg) for leg in star_opt[2]] if star_opt else []
+        sid_legs = sid_opt[1] + sid_opt[2] if sid_opt else []
+        # The STAR's first fix is the last enroute waypoint
+        star_legs = star_opt[1][1:] + star_opt[2] if star_opt and star_opt[1] else []
+        if star_opt and not star_opt[1]:
+            star_legs = star_opt[2][1:]
+        sid_pts = [dep.fix_pos(leg) for leg in sid_legs]
+        star_pts = [des.fix_pos(leg) for leg in star_legs]
         start_pt = dep.runways.get(dep_rwy, dep.pos)
         end_pt = des.runways.get(des_rwy, des.pos)
         chain = [start_pt] + sid_pts + [w[3] for w in enroute] + star_pts + [end_pt]
@@ -725,13 +736,19 @@ class Generator:
             lines.append(f"DEPRWY {dep_rwy}")
         if sid_opt:
             lines.append(f"SID {sid_opt[0]}")
+            if sid_opt[3]:
+                lines.append(f"SIDTRANS {sid_opt[3]}")
         lines.append(f"ADES {des.icao}")
         if des_rwy:
             lines.append(f"DESRWY {des_rwy}")
         if star_opt:
             lines.append(f"STAR {star_opt[0]}")
+            if star_opt[3]:
+                lines.append(f"STARTRANS {star_opt[3]}")
         if app:
             lines.append(f"APP {app[1]}")
+            if app_trans:
+                lines.append(f"APPTRANS {app_trans}")
         lines.append(f"NUMENR {len(enroute) + 2}")
         lines.append(f"1 {dep.icao} ADEP {dep.elev:.6f} {dep.lat:.6f} {dep.lon:.6f}")
         for i, (ident, kind, via, p) in enumerate(enroute):
@@ -740,10 +757,15 @@ class Generator:
             lines.append(f"{kind} {ident} {via} {alt:.6f} {p[0]:.6f} {p[1]:.6f}")
         lines.append(f"1 {des.icao} ADES {des.elev:.6f} {des.lat:.6f} {des.lon:.6f}")
 
+        def named(name, trans):
+            return f"{name}.{trans}" if trans else name
+
         summary = (
-            f"{dep.icao} {dep_rwy or '-'} {sid_opt[0] if sid_opt else '-'} "
-            f"{route_string(enroute)} {star_opt[0] if star_opt else '-'} "
-            f"{app[1] if app else '-'} {des_rwy or '-'} {des.icao}, "
+            f"{dep.icao} {dep_rwy or '-'} "
+            f"{named(sid_opt[0], sid_opt[3]) if sid_opt else '-'} "
+            f"{route_string(enroute)} "
+            f"{named(star_opt[0], star_opt[3]) if star_opt else '-'} "
+            f"{named(app[1], app_trans) if app else '-'} {des_rwy or '-'} {des.icao}, "
             f"{round(total)}nm FL{cruise // 100}"
         )
         return GeneratedPlan(dep.icao, des.icao, "\n".join(lines) + "\n", summary)

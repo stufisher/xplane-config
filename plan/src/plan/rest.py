@@ -404,7 +404,9 @@ class REST:
         direction="UP",
         iterate=True,
         timeout=5,
+        side=None,
     ):
+        """Row holding text; side "L" or "R" matches only that column's entry"""
         start_time = time.time()
         found = False
         last_lines = []
@@ -418,7 +420,14 @@ class REST:
                 return
             for line_id, line in enumerate(lines):
                 # print(line_id, line, text, text in line)
-                if text in line:
+                if side is None:
+                    matched = text in line
+                else:
+                    words = line.split()
+                    word = (words[0] if side == "L" else words[-1]) if words else ""
+                    # Selection arrows sit next to the entry, ignore them
+                    matched = re.sub(r"[^A-Z0-9-]", "", word) == text
+                if matched:
                     found = True
                     return line_id
 

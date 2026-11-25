@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import logging
 import mmap
 import os
@@ -61,9 +61,13 @@ class FMSPlan:
     DEPRWY: Optional[str] = None
     DEPRWY_LENGTH: Optional[int] = None
     SID: Optional[str] = None
+    # Named enroute or approach transition of each procedure
+    SIDTRANS: Optional[str] = None
 
     STAR: Optional[str] = None
+    STARTRANS: Optional[str] = None
     APP: Optional[str] = None
+    APPTRANS: Optional[str] = None
     DESRWY: Optional[str] = None
     DESRWY_LENGTH: Optional[int] = None
 
@@ -78,11 +82,17 @@ class FMSPlan:
     async def load_procedures(self, cifp, apt: APT):
         logger.info(f"Loading procedures for {self.ADEP} to {self.ADES}")
         if self.SID and self.sid_proc is None:
-            self.sid_proc = await cifp.get_procedure(self.SID, self.ADEP, self.DEPRWY)
+            self.sid_proc = await cifp.get_procedure(
+                self.SID, self.ADEP, self.DEPRWY, transition=self.SIDTRANS
+            )
         if self.STAR and self.star_proc is None:
             # With an approach loaded it is the approach that reaches the runway
             self.star_proc = await cifp.get_procedure(
-                self.STAR, self.ADES, self.DESRWY, add_threshold=not self.APP
+                self.STAR,
+                self.ADES,
+                self.DESRWY,
+                add_threshold=not self.APP,
+                transition=self.STARTRANS,
             )
         if self.APP and self.app_proc is None:
             star_end = (
@@ -91,7 +101,7 @@ class FMSPlan:
                 else None
             )
             self.app_proc = await cifp.get_procedure(
-                self.APP, self.ADES, entry_fix=star_end
+                self.APP, self.ADES, entry_fix=star_end, transition=self.APPTRANS
             )
 
         if self.DEPRWY and self.DEPRWY_LENGTH is None:
@@ -124,6 +134,10 @@ class FMSPlan:
 
         legs = [("SID", sid), ("ENRT", enroute), ("STAR", star), ("APP", app)]
         return [(name, waypoints) for name, waypoints in legs if waypoints]
+
+
+# Header keys a plan file may set
+PLAN_KEYS = {field.name for field in fields(FMSPlan)}
 
 
 def find_rows(
@@ -290,6 +304,16 @@ def select_transition(transitions: dict, plan_runway: str = None):
     return None, []
 
 
+def join_legs(*parts):
+    """Concatenate leg lists, dropping a fix repeated where two parts meet"""
+    joined = []
+    for legs in parts:
+        for leg in legs:
+            if not joined or joined[-1].split(",")[0] != leg.split(",")[0]:
+                joined.append(leg)
+    return joined
+
+
 class CIFP:
     def __init__(self, paths: XPlanePaths = XPlanePaths()):
         self._paths = paths
@@ -322,9 +346,16 @@ class CIFP:
         plan_runway: str = None,
         add_threshold: bool = True,
         entry_fix: str = None,
+        transition: str = None,
     ):
+        """Legs of the procedure flown from plan_runway.
+
+        transition names an enroute transition, flown after a SID's common route
+        or before a STAR's, or an approach transition flown before the approach.
+        """
         procedure_key = (
             f"{procedure_name}-{icao_code}-{plan_runway}-{add_threshold}-{entry_fix}"
+            f"-{transition}"
         )
         if procedure_key in self._procedure_cache:
             return self._procedure_cache[procedure_key]
@@ -341,11 +372,27 @@ class CIFP:
                 f"have {sorted(transitions)}"
             )
 
-        # An approach is joined from the arrival by the feeder transition that
-        # starts where the arrival ends
-        if entry_fix:
-            for transition, legs in transitions.items():
-                if transition != runway and legs and legs[0].split(",")[0] == entry_fix:
+        trans_legs = transitions.get(transition) if transition else None
+        if transition and trans_legs is None:
+            logger.warning(
+                f"No {procedure_name} transition {transition} for {icao_code}, "
+                f"have {sorted(transitions)}"
+            )
+        if trans_legs:
+            # Runway legs join the transition through the common route
+            common = []
+            if runway not in ("", "ALL"):
+                common = transitions.get("") or transitions.get("ALL") or []
+            if found_procedure_type == "SID":
+                procedure_waypoints = join_legs(procedure_waypoints, common, trans_legs)
+            else:
+                procedure_waypoints = join_legs(trans_legs, common, procedure_waypoints)
+
+        # Without a named transition an approach is joined from the arrival by
+        # the feeder transition that starts where the arrival ends
+        elif entry_fix:
+            for feeder_name, legs in transitions.items():
+                if feeder_name != runway and legs and legs[0].split(",")[0] == entry_fix:
                     feeder = list(legs)
                     if (
                         procedure_waypoints
@@ -465,7 +512,10 @@ class FMS:
                     )
                 else:
                     key, value = line.split(" ")
-                    fms[key] = value
+                    if key in PLAN_KEYS:
+                        fms[key] = value
+                    else:
+                        logger.warning(f"Ignoring {key} in {file_path}")
                     if key == "NUMENR":
                         in_waypoints = True
 
