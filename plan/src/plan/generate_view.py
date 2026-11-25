@@ -258,7 +258,7 @@ class PlannerDialog:
             row_key="icao",
             selection="single",
             on_select=self._select_destination,
-        ).props("dense virtual-scroll").style("height: 160px")
+        ).props("dense virtual-scroll").classes("w-full").style("height: 160px")
         colour_weather_cells(self._table, "wx")
 
         # Equal columns, each field filling its own, so no label is clipped
