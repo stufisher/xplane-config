@@ -16,7 +16,9 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator
-from .generate_view import PlannerDialog
+from .enroute import enroute_hazard, enroute_text, enroute_wind, route_points
+from .generate_view import PlannerDialog, severity_colour
+from .grib import WindsAloft, latest_grib
 from .places import download_missing
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
@@ -139,6 +141,8 @@ class UI:
         self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
         self._udp = UDP(self._apt)
         self._generator = Generator(paths)
+        self._paths = paths
+        self._winds_aloft = None
         self._background_running = True
         self._map_markers = []
         self._map_lines = []
@@ -323,6 +327,7 @@ class UI:
                                 ui.icon("flight_land").classes("text-2xl")
                                 self.des_time = ui.label("--:--")
                             self.des_weather = ui.markdown("6c hail 999mb")
+                    self._enroute_weather = ui.label("").classes("text-sm")
 
                 with Card(grow=True):
                     log = ui.log(max_lines=5).style("height: 80px")
@@ -371,6 +376,8 @@ class UI:
             plans=lambda: self._plan.plans,
             location=self.aircraft_position,
             metar=self.metar,
+            winds=self.winds_aloft,
+            stations=self.metar_stations,
             on_select=self.show_plan,
             on_generated=self.plan_generated,
         )
@@ -400,6 +407,28 @@ class UI:
             logger.debug(f"No weather for {icao}")
             return None
 
+    def winds_aloft(self):
+        """Winds from the newest real weather GRIB, reloaded when it changes"""
+        path = latest_grib(self._paths.real_weather)
+        if path is None:
+            return None
+        if self._winds_aloft is None or self._winds_aloft.path != path:
+            try:
+                self._winds_aloft = WindsAloft(path)
+            except (OSError, ValueError, IndexError):
+                logger.warning(f"Could not read winds from {path}")
+                return None
+        return self._winds_aloft
+
+    def metar_stations(self):
+        """ICAO -> (lat, lon) of every airport with a METAR"""
+        try:
+            codes = self._plan.metar_stations()
+        except Exception:
+            logger.debug("No METAR stations")
+            return {}
+        return self._generator.positions(codes)
+
     async def open_planner(self):
         await self._planner.open()
 
@@ -412,6 +441,23 @@ class UI:
 
     async def _background_task(self):
         self.update_weather()
+        self.update_enroute()
+
+    def update_enroute(self):
+        """One line of winds aloft and cruise hazards along the current plan"""
+        plan = self._plan.current
+        if not plan:
+            self._enroute_weather.set_text("")
+            return
+        points = route_points(plan.waypoints)
+        winds = self.winds_aloft()
+        wind = enroute_wind(points, winds) if winds else None
+        hazard = enroute_hazard(points, self.metar_stations(), self.metar)
+        text = enroute_text(wind, hazard) or "N/A"
+        self._enroute_weather.set_text(f"Enroute: {text}")
+        self._enroute_weather.style(
+            f"color: {severity_colour(hazard.challenge.score if hazard else 0)}"
+        )
 
     async def init_mcdu(self, element):
         with disable(element):
@@ -498,6 +544,7 @@ class UI:
         await self._plan.load_plan(value)
         self._spinner.set_visibility(False)
         self.update_weather()
+        self.update_enroute()
 
         if not self._plan.current:
             return

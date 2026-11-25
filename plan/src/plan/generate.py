@@ -470,6 +470,14 @@ class Generator:
         ]
         return max((length for length in lengths if length), default=None)
 
+    def positions(self, icaos):
+        """ICAO -> (lat, lon) for the airports airports-py knows"""
+        return {
+            icao: (self._airports[icao]["latitude"], self._airports[icao]["longitude"])
+            for icao in icaos
+            if icao in self._airports
+        }
+
     def distance_nm(self, a, b):
         """Great circle distance between two airports, None if either is unknown"""
         if a not in self._airports or b not in self._airports:

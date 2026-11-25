@@ -101,6 +101,10 @@ class Plan:
         """Latest METAR for any airport, None when the sim has none"""
         return self._weather.get_forecast(icao)
 
+    def metar_stations(self):
+        """ICAO codes the sim has METARs for"""
+        return self._weather.stations()
+
     @property
     def weather_dep(self):
         if not self._plan:

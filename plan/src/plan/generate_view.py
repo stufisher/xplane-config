@@ -3,6 +3,7 @@ import logging
 
 from nicegui import run, ui
 
+from .enroute import enroute_hazard, enroute_text, enroute_wind, route_points
 from .generate import Generator, block_minutes, runway_heading, runway_score
 from .weather import challenge, metar_wind
 
@@ -74,13 +75,25 @@ class PlannerDialog:
     generator for new plans on the other."""
 
     def __init__(
-        self, generator: Generator, plans, location, metar, on_select, on_generated
+        self,
+        generator: Generator,
+        plans,
+        location,
+        metar,
+        winds,
+        stations,
+        on_select,
+        on_generated,
     ):
         """plans() lists the FMSPlan objects, location() gives the aircraft
-        (lat, lon) or None, metar(icao) the latest METAR or None, on_select(path)
-        loads an existing plan and on_generated(path) runs after a save."""
+        (lat, lon) or None, metar(icao) the latest METAR or None, winds() the
+        WindsAloft or None, stations() maps METAR stations to (lat, lon),
+        on_select(path) loads an existing plan and on_generated(path) runs
+        after a save."""
         self._generator = generator
         self._plans = plans
+        self._winds = winds
+        self._stations = stations
         self._location = location
         self._metar = metar
         self._on_select = on_select
@@ -132,6 +145,8 @@ class PlannerDialog:
                  "align": "left"},
                 {"name": "arr_wx", "label": "Arr weather", "field": "arr_wx",
                  "align": "left"},
+                {"name": "enroute", "label": "Enroute", "field": "enroute",
+                 "align": "left"},
                 {"name": "dep_rwy", "label": "Dep rwy ft", "field": "dep_rwy",
                  "sortable": True},
                 {"name": "arr_rwy", "label": "Arr rwy ft", "field": "arr_rwy",
@@ -142,15 +157,20 @@ class PlannerDialog:
             selection="single",
             on_select=self._select_plan,
         ).props("dense virtual-scroll").style("height: 320px")
-        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx")
+        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "enroute")
 
-    def _plan_row(self, plan):
-        """Table row for an existing plan, judged on its planned runways."""
+    def _plan_row(self, plan, winds, stations):
+        """Table row for an existing plan, judged on its planned runways and
+        the weather along its route."""
         lengths, weather = [], []
         for icao, runway in ((plan.ADEP, plan.DEPRWY), (plan.ADES, plan.DESRWY)):
             headings = [runway_heading(runway)] if runway else []
             weather.append(challenge(self._metar(icao), headings))
             lengths.append(self._generator.runway_length_ft(icao, runway))
+        points = route_points(plan.waypoints)
+        wind = enroute_wind(points, winds) if winds else None
+        hazard = enroute_hazard(points, stations, self._metar)
+        enroute_score = hazard.challenge.score if hazard else 0
         distance = self._generator.distance_nm(plan.ADEP, plan.ADES)
         minutes = block_minutes(distance) if distance else 0
         return {
@@ -164,15 +184,25 @@ class PlannerDialog:
             "dep_wx_colour": severity_colour(weather[0].score),
             "arr_wx": weather_text(weather[1]),
             "arr_wx_colour": severity_colour(weather[1].score),
+            "enroute": enroute_text(wind, hazard),
+            "enroute_colour": severity_colour(enroute_score),
             "dep_rwy": lengths[0] or "",
             "arr_rwy": lengths[1] or "",
-            "score": combined_score(weather, lengths),
+            "score": self._route_score(combined_score(weather, lengths), enroute_score),
         }
+
+    @staticmethod
+    def _route_score(ends_score, enroute_score):
+        """Ends plus enroute; a hazard on the route counts without end weather"""
+        if ends_score < 0:
+            return enroute_score if enroute_score > 0 else -1
+        return ends_score + enroute_score
 
     async def _load_plans(self):
         def rows():
             # Reading the plan folder and the weather is slow, keep it off the UI
-            return [self._plan_row(plan) for plan in self._plans()]
+            winds, stations = self._winds(), self._stations()
+            return [self._plan_row(plan, winds, stations) for plan in self._plans()]
 
         with busy(self._plans_table, self._plans_refresh):
             self._plan_rows = await run.io_bound(rows)

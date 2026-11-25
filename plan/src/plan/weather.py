@@ -51,6 +51,11 @@ class Weather:
 
         self._last_update = time.time()
 
+    def stations(self):
+        """ICAO codes of every station in the latest METAR file"""
+        self._update_weather()
+        return list(self._weather_cache)
+
     def get_forecast(self, airport: str):
         self._update_weather()
         try:
