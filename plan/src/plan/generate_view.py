@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import logging
 
 from nicegui import run, ui
@@ -48,6 +49,18 @@ def combined_score(weather, lengths):
     if not known:
         return -1
     return sum(known) + sum(runway_score(length) for length in lengths)
+
+
+@contextmanager
+def busy(*elements):
+    """Spinner on buttons and a progress bar on tables while work runs"""
+    for element in elements:
+        element.props("loading")
+    try:
+        yield
+    finally:
+        for element in elements:
+            element.props(remove="loading")
 
 
 def sort_rows(rows, hardest_first):
@@ -157,14 +170,12 @@ class PlannerDialog:
         }
 
     async def _load_plans(self):
-        self._plans_refresh.disable()
-        try:
-            plans = self._plans()
-            self._plan_rows = await run.io_bound(
-                lambda: [self._plan_row(plan) for plan in plans]
-            )
-        finally:
-            self._plans_refresh.enable()
+        def rows():
+            # Reading the plan folder and the weather is slow, keep it off the UI
+            return [self._plan_row(plan) for plan in self._plans()]
+
+        with busy(self._plans_table, self._plans_refresh):
+            self._plan_rows = await run.io_bound(rows)
         self._show_plans()
 
     def _show_plans(self):
@@ -270,18 +281,19 @@ class PlannerDialog:
     async def _find(self):
         adep = (self._departure.value or "").strip().upper()
         value = self._range.value
-        try:
+
+        def search():
             found = self._generator.destinations(adep, value["min"], value["max"])
-        except KeyError as e:
-            ui.notify(str(e), type="negative")
-            return
-        self._find_button.disable()
-        try:
-            weather = await run.io_bound(
-                lambda: [self._challenge(d.icao) for d in found]
-            )
-        finally:
-            self._find_button.enable()
+            return found, [self._challenge(d.icao) for d in found]
+
+        with busy(self._table, self._find_button):
+            try:
+                found, weather = await run.io_bound(search)
+            except KeyError as e:
+                ui.notify(str(e), type="negative")
+                return
+            # Runways for the departure load the navdata, which then stays cached
+            await self._load_runways(self._dep_rwy, adep, arrival=False)
         self._rows = [
             {
                 "icao": d.icao,
@@ -301,8 +313,6 @@ class PlannerDialog:
         self._show_rows()
         self._destination = None
         self._generate_button.disable()
-        # Runways for the departure load the navdata, which then stays cached
-        await self._load_runways(self._dep_rwy, adep, arrival=False)
 
     async def _select_destination(self, e):
         selected = e.selection[0]["icao"] if e.selection else None
@@ -350,18 +360,18 @@ class PlannerDialog:
         def pick(select: ui.select):
             return None if select.value == AUTO else select.value
 
-        self._generate_button.disable()
         self._summary.set_text("Planning...")
         try:
-            plan = await run.io_bound(
-                self._generator.plan,
-                adep,
-                ades,
-                pick(self._dep_rwy),
-                pick(self._des_rwy),
-                int(cruise) if cruise else None,
-                pick(self._approach),
-            )
+            with busy(self._generate_button):
+                plan = await run.io_bound(
+                    self._generator.plan,
+                    adep,
+                    ades,
+                    pick(self._dep_rwy),
+                    pick(self._des_rwy),
+                    int(cruise) if cruise else None,
+                    pick(self._approach),
+                )
             path = self._generator.write(plan)
         except FileExistsError:
             self._summary.set_text("")
