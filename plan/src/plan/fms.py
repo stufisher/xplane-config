@@ -33,6 +33,18 @@ class Procedure:
     waypoints: list[Waypoint]
 
 
+async def runway_length_ft(apt: APT, icao_code: str, runway: str):
+    """Runway length in feet, or None when apt.dat lacks either runway end"""
+    try:
+        hdg_len = await apt.get_runway_heading_and_length(icao_code, runway)
+    except KeyError:
+        hdg_len = None
+    if not hdg_len:
+        logger.warning(f"No runway length for {icao_code} {runway}")
+        return None
+    return int(hdg_len.length * 3.28084)
+
+
 @dataclass
 class FMSPlan:
     file_path: str
@@ -63,7 +75,7 @@ class FMSPlan:
     star_proc: Optional[Procedure] = None
     app_proc: Optional[Procedure] = None
 
-    async def load_procedures(self, cifp, apt: APT, load_runway: bool):
+    async def load_procedures(self, cifp, apt: APT):
         logger.info(f"Loading procedures for {self.ADEP} to {self.ADES}")
         if self.SID and self.sid_proc is None:
             self.sid_proc = await cifp.get_procedure(self.SID, self.ADEP, self.DEPRWY)
@@ -82,18 +94,10 @@ class FMSPlan:
                 self.APP, self.ADES, entry_fix=star_end
             )
 
-        if load_runway:
-            logger.info("Loading runway data")
-            if self.DEPRWY and self.DEPRWY_LENGTH is None:
-                hdg_len = await apt.get_runway_heading_and_length(
-                    self.ADEP, self.DEPRWY
-                )
-                self.DEPRWY_LENGTH = int(hdg_len.length * 3.28084)
-            if self.DESRWY and self.DESRWY_LENGTH is None:
-                hdg_len = await apt.get_runway_heading_and_length(
-                    self.ADES, self.DESRWY
-                )
-                self.DESRWY_LENGTH = int(hdg_len.length * 3.28084)
+        if self.DEPRWY and self.DEPRWY_LENGTH is None:
+            self.DEPRWY_LENGTH = await runway_length_ft(apt, self.ADEP, self.DEPRWY)
+        if self.DESRWY and self.DESRWY_LENGTH is None:
+            self.DESRWY_LENGTH = await runway_length_ft(apt, self.ADES, self.DESRWY)
         logger.info("Done loading")
 
     @property
@@ -494,10 +498,10 @@ class FMS:
         self._update_plans()
         return self._plans
 
-    async def get_plan(self, file_path: str, load_runway: bool):
+    async def get_plan(self, file_path: str):
         for plan in self.plans:
             if plan.file_path == file_path:
-                await plan.load_procedures(self._cifp, self._apt, load_runway)
+                await plan.load_procedures(self._cifp, self._apt)
                 return plan
 
 
