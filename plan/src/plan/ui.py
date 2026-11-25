@@ -67,8 +67,8 @@ def weather_text(metar) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def plan_detail(plan) -> str:
-    """Departure and arrival on one line each, in the order they are flown;
+def plan_detail(plan) -> tuple[str, str]:
+    """Departure and arrival lines, each in the order it is flown;
     a transition shows as NAME.TRANS"""
 
     def named(name, trans):
@@ -84,8 +84,7 @@ def plan_detail(plan) -> str:
         f"{named(plan.STAR, plan.STARTRANS)} · {named(plan.APP, plan.APPTRANS)} · "
         f"{runway(plan.DESRWY, plan.DESRWY_LENGTH)}"
     )
-    # Two trailing spaces end a markdown line
-    return f"**DEP** {dep}  \n**ARR** {arr}"
+    return f"DEP {dep}", f"ARR {arr}"
 
 
 @contextmanager
@@ -195,12 +194,6 @@ class UI:
             .nicegui-markdown p {
                 margin-top: 0;
             }
-            .plan-detail p {
-                margin: 0;
-                white-space: pre;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
             .leaflet-tooltip.leaflet-tooltip-right {
                 background: none;
                 border: none;
@@ -305,15 +298,13 @@ class UI:
                             )
                             self._map_center.tooltip("Center map on plane location")
                     with Row():
-                        # The text shrinks and cuts off rather than pushing the
-                        # buttons onto a line of their own
-                        self._plan_detail = (
-                            ui.markdown("")
-                            .classes("flex-1 min-w-0 plan-detail")
-                            .style("font-size: 0.85rem;")
-                        )
-                        with self._plan_detail:
-                            self._plan_detail_tooltip = ui.tooltip("")
+                        # The text wraps beside the buttons rather than pushing
+                        # them onto a line of their own
+                        with ui.column().classes("flex-1 min-w-0 gap-0").style(
+                            "font-size: 0.85rem;"
+                        ):
+                            self._plan_dep = ui.label("").classes("w-full")
+                            self._plan_arr = ui.label("").classes("w-full")
                         with ui.button_group().classes("shrink-0"):
                             mcdu_init_button = ui.button(
                                 icon="computer",
@@ -580,11 +571,10 @@ class UI:
         if not self._plan.current:
             return
 
-        self._plan_detail.content = plan_detail(self._plan.current)
-        # The full text, for when a line is cut off
-        self._plan_detail_tooltip.set_text(
-            plan_detail(self._plan.current).replace("**", "").replace("  \n", " | ")
-        )
+        for label, text in zip(
+            (self._plan_dep, self._plan_arr), plan_detail(self._plan.current)
+        ):
+            label.set_text(text)
 
         self._cruise_alt.value = self._plan.cruise
 
