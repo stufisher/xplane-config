@@ -16,7 +16,15 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator
-from .enroute import enroute_hazard, enroute_text, enroute_wind, route_points
+from .enroute import (
+    enroute_hazards,
+    enroute_text,
+    enroute_wind,
+    path_waypoints,
+    position_along,
+    route_length,
+    route_points,
+)
 from .generate_view import PlannerDialog, severity_colour
 from .grib import WindsAloft, latest_grib
 from .places import download_missing
@@ -350,6 +358,20 @@ class UI:
                                 self.des_time = ui.label("--:--")
                             self.des_weather = ui.markdown("6c hail 999mb")
                     self._enroute_weather = ui.label("").classes("text-sm")
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        self._progress_dep = ui.label("").classes("text-xs")
+                        # Track of the whole route: flown part filled, hazards and
+                        # the strongest wind marked where they are
+                        self._progress_bar = (
+                            ui.element("div")
+                            .classes("flex-1 relative")
+                            .style(
+                                "height: 8px; background: #555; border-radius: 4px"
+                            )
+                        )
+                        self._progress_arr = ui.label("").classes("text-xs")
+                        self._progress_text = ui.label("").classes("text-xs")
+                    self._progress_key = None
 
                 with Card(grow=True):
                     log = ui.log(max_lines=5).style("height: 80px")
@@ -466,20 +488,85 @@ class UI:
         self.update_enroute()
 
     def update_enroute(self):
-        """One line of winds aloft and cruise hazards along the current plan"""
+        """Winds aloft and cruise hazards along the current plan: one line of
+        text and a progress bar with the aircraft's position"""
         plan = self._plan.current
         if not plan:
             self._enroute_weather.set_text("")
+            self._show_progress(None, None, 0, None, [])
             return
-        points = route_points(plan.waypoints)
+        path = path_waypoints(plan)
+        points = route_points(path, step=5)
         winds = self.winds_aloft()
         wind = enroute_wind(points, winds) if winds else None
-        hazard = enroute_hazard(points, self.metar_stations(), self.metar)
+        hazards = enroute_hazards(points, self.metar_stations(), self.metar)
+        hazard = max(hazards, key=lambda h: h.challenge.score, default=None)
         text = enroute_text(wind, hazard) or "N/A"
         self._enroute_weather.set_text(f"Enroute: {text}")
         self._enroute_weather.style(
             f"color: {severity_colour(hazard.challenge.score if hazard else 0)}"
         )
+        loc = self._plan.location
+        position = position_along(points, loc.latitude, loc.longitude)
+        self._show_progress(plan, position, route_length(path), wind, hazards)
+
+    def _show_progress(self, plan, position, total, wind, hazards):
+        """Redraw the route progress bar when anything on it has changed"""
+
+        def where(along):
+            if position is None:
+                return f"at {along:.0f}nm"
+            ahead = along - position
+            return f"{abs(ahead):.0f}nm {'ahead' if ahead >= 0 else 'behind'}"
+
+        def percent(along):
+            return 0 if not total else max(0, min(100, 100 * along / total))
+
+        markers = [
+            (
+                percent(h.along),
+                h.challenge.icon,
+                severity_colour(h.challenge.score),
+                f"{h.challenge.notes} {h.station}, {where(h.along)}",
+            )
+            for h in hazards
+        ]
+        if wind and wind.max_speed:
+            markers.append(
+                (
+                    percent(wind.max_along),
+                    "▼",
+                    "white",
+                    f"max wind {wind.max_direction:03.0f}/{wind.max_speed:.0f}, "
+                    f"{where(wind.max_along)}",
+                )
+            )
+        filled = percent(position) if position is not None else 0
+        key = (plan and plan.file_path, round(filled), tuple(markers))
+        if key == self._progress_key:
+            return
+        self._progress_key = key
+
+        self._progress_dep.set_text(plan.ADEP if plan else "")
+        self._progress_arr.set_text(plan.ADES if plan else "")
+        self._progress_text.set_text(
+            f"{position:.0f} / {total:.0f} nm"
+            if plan and position is not None
+            else f"{total:.0f} nm" if plan else ""
+        )
+        self._progress_bar.clear()
+        with self._progress_bar:
+            ui.element("div").style(
+                "position: absolute; left: 0; top: 0; bottom: 0; "
+                f"width: {filled:.1f}%; background: #2196f3; border-radius: 4px"
+            )
+            for left, icon, colour, tip in markers:
+                with ui.label(icon).style(
+                    f"position: absolute; left: {left:.1f}%; top: -9px; "
+                    f"transform: translateX(-50%); color: {colour}; "
+                    "font-size: 13px; line-height: 1; cursor: default"
+                ):
+                    ui.tooltip(tip)
 
     async def init_mcdu(self, element):
         with disable(element):

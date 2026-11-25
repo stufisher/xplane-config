@@ -2,8 +2,9 @@
 
 from dataclasses import dataclass
 import math
+from types import SimpleNamespace
 
-from .generate import course, nm
+from .generate import GRADIENT, course, nm
 from .grib import WindsAloft
 from .weather import Challenge, challenge
 
@@ -15,6 +16,60 @@ NEAR_ROUTE_NM = 25
 STRONGEST_FROM_FT = 10000
 # Hazards that matter in cruise, not just on the runway
 ENROUTE_HAZARDS = ("⛈", "❄", "💨")
+# The aircraft counts as on the route within this distance of it, nm
+ON_ROUTE_NM = 50
+
+
+def path_waypoints(plan):
+    """The path drawn on the map: SID, enroute, STAR and approach.
+
+    Procedure fixes carry no altitude, so they get the climb and descent
+    profile between the planned cruise and the airports.
+    """
+    path = []
+    for _, waypoints in plan.segments:
+        for w in waypoints:
+            if not path or path[-1].name != w.name:
+                path.append(w)
+    if len(path) < 2:
+        path = list(plan.waypoints)
+    planned = {w.name: w.altitude for w in plan.waypoints if w.altitude is not None}
+    cruise = max(planned.values(), default=0)
+    dep_elev = plan.waypoints[0].altitude or 0 if plan.waypoints else 0
+    des_elev = plan.waypoints[-1].altitude or 0 if plan.waypoints else 0
+    along = [0.0]
+    for a, b in zip(path, path[1:]):
+        along.append(along[-1] + nm((a.latitude, a.longitude), (b.latitude, b.longitude)))
+    total = along[-1]
+    return [
+        SimpleNamespace(
+            name=w.name,
+            latitude=w.latitude,
+            longitude=w.longitude,
+            altitude=planned.get(w.name)
+            if w.name in planned
+            else min(cruise, dep_elev + d * GRADIENT, des_elev + (total - d) * GRADIENT),
+        )
+        for w, d in zip(path, along)
+    ]
+
+
+def route_length(waypoints) -> float:
+    return sum(
+        nm((a.latitude, a.longitude), (b.latitude, b.longitude))
+        for a, b in zip(waypoints, waypoints[1:])
+    )
+
+
+def position_along(points, lat, lon) -> float | None:
+    """Distance from departure of the route point nearest the aircraft, None
+    when the aircraft is not near the route"""
+    if not points or lat is None or lon is None:
+        return None
+    nearest = min(points, key=lambda p: nm((p.lat, p.lon), (lat, lon)))
+    if nm((nearest.lat, nearest.lon), (lat, lon)) > ON_ROUTE_NM:
+        return None
+    return nearest.along
 
 
 @dataclass
@@ -100,12 +155,18 @@ def enroute_hazard(points, stations, metar) -> EnrouteHazard | None:
 
     stations maps ICAO to (lat, lon); metar(icao) gives the parsed METAR.
     """
+    hazards = enroute_hazards(points, stations, metar)
+    return max(hazards, key=lambda h: h.challenge.score, default=None)
+
+
+def enroute_hazards(points, stations, metar) -> list[EnrouteHazard]:
+    """Every cruise hazard in METARs from stations near the route, in route order"""
     if not points:
-        return None
+        return []
     lats = [p.lat for p in points]
     lons = [p.lon for p in points]
     margin = NEAR_ROUTE_NM / 60
-    worst = None
+    found = []
     for icao, (lat, lon) in stations.items():
         # Cheap box test before measuring distances
         if not (min(lats) - margin <= lat <= max(lats) + margin):
@@ -119,9 +180,8 @@ def enroute_hazard(points, stations, metar) -> EnrouteHazard | None:
         wx = challenge(metar(icao), [])
         if wx.icon not in ENROUTE_HAZARDS:
             continue
-        if worst is None or wx.score > worst.challenge.score:
-            worst = EnrouteHazard(icao, wx, nearest.along)
-    return worst
+        found.append(EnrouteHazard(icao, wx, nearest.along))
+    return sorted(found, key=lambda h: h.along)
 
 
 def enroute_text(wind: EnrouteWind | None, hazard: EnrouteHazard | None) -> str:
