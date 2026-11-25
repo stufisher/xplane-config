@@ -177,14 +177,11 @@ class Plan:
         app = self._plan.APP
         if app:
             logger.info(f"MCDU: Setting arrival approach {app}")
-            if app.startswith("L"):
-                app = app.replace("L", "LOC")
-            if app.startswith("I"):
-                app = app.replace("I", "ILS")
-            if app.startswith("G"):
-                app = app.replace("G", "IGS")
-            if app.startswith("R"):
-                app = app.replace("R", "RNV")
+            # Only a type letter in front of a runway is spelt out, e.g.
+            # R24RY -> RNV24RY; circling names such as LOCA stay as they are
+            prefixes = {"L": "LOC", "I": "ILS", "G": "IGS", "R": "RNV"}
+            if app[:1] in prefixes and app[1:2].isdigit():
+                app = prefixes[app[0]] + app[1:]
             row_id = await self._rest.find_row_in_display(app)
             if row_id is not None:
                 await self._rest.press_button(f"{row_id+1}L")
