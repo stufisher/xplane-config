@@ -254,9 +254,12 @@ class PlannerDialog:
 
         self._table = ui.table(
             columns=[
-                {"name": "iata", "label": "", "field": "iata", "align": "left"},
-                {"name": "city", "label": "City", "field": "city", "align": "left"},
-                {"name": "icao", "label": "ICAO", "field": "icao", "align": "left"},
+                {"name": "iata", "label": "IATA", "field": "iata", "align": "left",
+                 "sortable": True},
+                {"name": "city", "label": "City", "field": "city", "align": "left",
+                 "sortable": True},
+                {"name": "icao", "label": "ICAO", "field": "icao", "align": "left",
+                 "sortable": True},
                 {"name": "nm", "label": "nm", "field": "nm", "sortable": True},
                 {"name": "time", "label": "Block", "field": "time", "sortable": True},
                 {"name": "rwy", "label": "Rwy ft", "field": "rwy", "sortable": True},
