@@ -67,8 +67,8 @@ class Plan:
         self._rest.set_subscribed_drefs(self._location_drefs + [self._time_dref])
         background_tasks.create(self._rest.socket_client())
 
-    async def load_plan(self, file_path: str, load_runway=False):
-        self._plan = await self._fms.get_plan(file_path, load_runway)
+    async def load_plan(self, file_path: str):
+        self._plan = await self._fms.get_plan(file_path)
 
     @property
     def current(self):

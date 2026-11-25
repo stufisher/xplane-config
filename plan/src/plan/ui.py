@@ -143,7 +143,6 @@ class UI:
         self._last_location_update_time = 0
         self._map_center = None
         self._time_label = None
-        self._plan_select_value = {}
 
     async def startup(self):
         await self._plan._init()
@@ -194,16 +193,10 @@ class UI:
                                 with_input=True,
                             )
                             .classes("flex-1 w-50")
-                            .bind_value(self._plan_select_value)
                         )
                         self._spinner = ui.spinner(size="lg")
                         self._spinner.set_visibility(False)
                         with ui.button_group():
-                            plan_load_runway_button = ui.button(
-                                icon="add_road",
-                                on_click=self.load_runway_data,
-                            )
-                            plan_load_runway_button.tooltip("Load runway data")
                             plan_refresh_button = ui.button(
                                 icon="refresh",
                                 on_click=lambda e: self.update_plans(),
@@ -461,12 +454,9 @@ class UI:
         minutes, seconds = divmod(remain, 60)
         self._time_label.set_text(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
 
-    async def load_runway_data(self):
-        await self.select_plan(self._plan_select_value["value"], True)
-
-    async def select_plan(self, value, load_runway: bool = False):
+    async def select_plan(self, value):
         self._spinner.set_visibility(True)
-        await self._plan.load_plan(value, load_runway)
+        await self._plan.load_plan(value)
         self._spinner.set_visibility(False)
         self.update_weather()
 
