@@ -22,6 +22,16 @@ class Location:
     theta: float
     phi: float
     psi: float
+    # m/s
+    groundspeed: float | None = None
+    mag_psi: float | None = None
+
+    @property
+    def variation(self):
+        """Magnetic minus true heading, degrees; 0 until both are known"""
+        if self.mag_psi is None or self.psi is None:
+            return 0.0
+        return (self.mag_psi - self.psi + 180) % 360 - 180
 
 
 class Plan:
@@ -48,6 +58,8 @@ class Plan:
             "sim/flightmodel/position/theta,1",
             "sim/flightmodel/position/phi,1",
             "sim/flightmodel/position/psi,1",
+            "sim/flightmodel/position/groundspeed,1",
+            "sim/flightmodel/position/mag_psi,1",
         ]
         self._update_time = update_time
         self._update_location = update_location
@@ -323,6 +335,8 @@ class Plan:
         theta = self._rest.get_dref_value("sim/flightmodel/position/theta,1")
         phi = self._rest.get_dref_value("sim/flightmodel/position/phi,1")
         psi = self._rest.get_dref_value("sim/flightmodel/position/psi,1")
+        groundspeed = self._rest.get_dref_value("sim/flightmodel/position/groundspeed,1")
+        mag_psi = self._rest.get_dref_value("sim/flightmodel/position/mag_psi,1")
 
         return Location(
             latitude=latitude,
@@ -331,6 +345,8 @@ class Plan:
             theta=theta or 0,
             phi=phi or 0,
             psi=psi or 0,
+            groundspeed=groundspeed,
+            mag_psi=mag_psi,
         )
 
     async def shutdown(self):
