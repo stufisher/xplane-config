@@ -1,7 +1,7 @@
 """Diversions: airports near the aircraft, their runways, and manual vectors
 onto the final approach of the chosen runway."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
 from .apt import heading_and_length
@@ -108,6 +108,8 @@ class Leg:
     # Speed at the end of the leg, kt
     speed_kt: float = 0
     minutes: float = 0
+    # Already flown
+    done: bool = False
 
 
 @dataclass
@@ -202,6 +204,9 @@ class Vectors:
     speeds: Speeds | None = None
     # Level deceleration to green dot at the end of the direct leg, nm
     decel_nm: float = 0
+    # Map labels of the points after the aircraft
+    point_labels: list[str] = field(default_factory=list)
+    phase: str = "direct"
 
 
 def read_ils(earth_nav_path) -> dict:
@@ -253,6 +258,76 @@ def unit(heading):
     return math.sin(math.radians(heading)), math.cos(math.radians(heading))
 
 
+# Give around the fixed points when moving on to the next leg, nm: how close
+# to the join point, how close to the intercept line once past it, and how
+# close to the extended centreline counts as established on final
+JOIN_TOLERANCE_NM = 1.5
+ON_LINE_NM = 3
+ON_FINAL_NM = 1
+# How far beyond the intercept point being on the centreline already counts;
+# not so far that the join point, close to the converging centreline, counts
+EARLY_FINAL_NM = 2
+PHASES = ("direct", "intercept", "final")
+
+
+@dataclass
+class Route:
+    """The diversion's fixed points, worked out once when it starts"""
+
+    threshold: tuple[float, float]
+    join: tuple[float, float]
+    intercept: tuple[float, float]
+    final_true: float
+    intercept_true: float
+
+
+def plan_route(lat, lon, runway: RunwayEnd) -> Route:
+    """Join point and intercept point for joining final from the side of the
+    extended centreline the aircraft is on, turning towards the runway"""
+    threshold = (runway.lat, runway.lon)
+    final_true = runway.final_true
+    ux, uy = unit(final_true)
+    intercept = (-FINAL_NM * ux, -FINAL_NM * uy)
+    ax, ay = to_local(threshold, (lat, lon))
+    side = 1 if ux * ay - uy * ax > 0 else -1
+    intercept_true = (final_true + side * INTERCEPT_ANGLE) % 360
+    ix, iy = unit(intercept_true)
+    join = (intercept[0] - INTERCEPT_NM * ix, intercept[1] - INTERCEPT_NM * iy)
+    return Route(
+        threshold=threshold,
+        join=from_local(threshold, join),
+        intercept=from_local(threshold, intercept),
+        final_true=final_true,
+        intercept_true=intercept_true,
+    )
+
+
+def next_phase(route: Route, lat, lon, phase="direct") -> str:
+    """The leg being flown, moving only forwards, with some give around the
+    join point, the intercept line and the extended centreline"""
+    thr = route.threshold
+    ax, ay = to_local(thr, (lat, lon))
+    jx, jy = to_local(thr, route.join)
+    ux, uy = unit(route.final_true)
+    ix, iy = unit(route.intercept_true)
+
+    # Distance out on the approach side, and off the extended centreline
+    out = -(ax * ux + ay * uy)
+    off_final = abs(ux * ay - uy * ax)
+    on_final = 0 < out <= FINAL_NM + EARLY_FINAL_NM and off_final <= ON_FINAL_NM
+    past_intercept = 0 < out < FINAL_NM and off_final <= ON_LINE_NM
+    if phase == "final" or on_final or past_intercept:
+        return "final"
+
+    # Along and off the intercept line, measured from the join point
+    along = (ax - jx) * ix + (ay - jy) * iy
+    off_line = abs(ix * (ay - jy) - iy * (ax - jx))
+    near_join = math.hypot(ax - jx, ay - jy) <= JOIN_TOLERANCE_NM
+    if phase == "intercept" or near_join or (along > 0 and off_line <= ON_LINE_NM):
+        return "intercept"
+    return "direct"
+
+
 def vectors(
     lat,
     lon,
@@ -261,8 +336,11 @@ def vectors(
     variation,
     runway: RunwayEnd,
     speeds: Speeds | None = None,
+    route: Route | None = None,
+    phase="direct",
 ) -> Vectors:
-    """Direct to a join point, a 30 degree intercept, then the final approach.
+    """Direct to a join point, a 30 degree intercept, then the final approach,
+    from the leg being flown; legs already flown have no distance and are done.
 
     variation is magnetic minus true heading at the aircraft, used for legs
     other than the final, whose course comes from the localizer when there is
@@ -272,25 +350,24 @@ def vectors(
     and the final to Vapp by 1000ft. Speeds are taken as ground speeds, with
     the runway headwind taken off the final.
     """
-    threshold = (runway.lat, runway.lon)
-    final_true = runway.final_true
-    ux, uy = unit(final_true)
-    intercept = (-FINAL_NM * ux, -FINAL_NM * uy)
-    ax, ay = to_local(threshold, (lat, lon))
-    # Join final from the side the aircraft is on, turning towards the runway
-    side = 1 if ux * ay - uy * ax > 0 else -1
-    intercept_true = (final_true + side * INTERCEPT_ANGLE) % 360
-    ix, iy = unit(intercept_true)
-    join = (intercept[0] - INTERCEPT_NM * ix, intercept[1] - INTERCEPT_NM * iy)
-
-    join_ll = from_local(threshold, join)
-    intercept_ll = from_local(threshold, intercept)
-    to_join = nm((lat, lon), join_ll)
+    route = route or plan_route(lat, lon, runway)
+    here = (lat, lon)
+    step = PHASES.index(phase)
+    to_join = nm(here, route.join) if step == 0 else 0.0
+    if step == 0:
+        to_intercept = INTERCEPT_NM
+    elif step == 1:
+        to_intercept = nm(here, route.intercept)
+    else:
+        to_intercept = 0.0
+    to_threshold = FINAL_NM if step < 2 else nm(here, route.threshold)
     legs = [
-        Leg("Direct", (course((lat, lon), join_ll) + variation) % 360, to_join),
-        Leg("Intercept", (intercept_true + variation) % 360, INTERCEPT_NM),
-        Leg("Final", runway.heading_mag(variation), FINAL_NM),
+        Leg("Direct", (course(here, route.join) + variation) % 360, to_join),
+        Leg("Intercept", (route.intercept_true + variation) % 360, to_intercept),
+        Leg("Final", runway.heading_mag(variation), to_threshold),
     ]
+    for leg in legs[:step]:
+        leg.done = True
 
     angle = runway.ils.glideslope if runway.ils and runway.ils.glideslope else 3.0
     glide_ft_per_nm = math.tan(math.radians(angle)) * 6076
@@ -313,31 +390,40 @@ def vectors(
             decel_nm, speed, gd
         )
         intercept_leg.speed_kt = f_speed
-        intercept_leg.minutes = minutes(INTERCEPT_NM, gd, f_speed)
+        intercept_leg.minutes = minutes(to_intercept, gd, f_speed)
         # Slow to Vapp by the stable height, then hold it to the threshold
-        stable_nm = min(STABLE_FT / glide_ft_per_nm, FINAL_NM)
+        stable_nm = min(STABLE_FT / glide_ft_per_nm, to_threshold)
         head = speeds.headwind
+        final_start = f_speed if step < 2 else min(f_speed, indicated)
         final.speed_kt = speeds.vapp
         final.minutes = minutes(
-            FINAL_NM - stable_nm, f_speed - head, speeds.vapp - head
+            to_threshold - stable_nm, final_start - head, speeds.vapp - head
         ) + minutes(stable_nm, speeds.vapp - head, speeds.vapp - head)
         if moving:
             eta = sum(leg.minutes for leg in legs)
     elif moving:
         eta = total / ground_speed_kt * 60
 
+    # The intercept leg is level, so the descent ends where it starts
+    if step == 0:
+        descent = descent_advice(altitude_ft - intercept_alt, to_join - decel_nm, speed)
+    elif step == 1:
+        descent = descent_advice(altitude_ft - intercept_alt, to_intercept, speed)
+    else:
+        descent = ""
+    fixed = [route.join, route.intercept, route.threshold][step:]
     return Vectors(
         legs=legs,
         intercept_alt_ft=intercept_alt,
         glide_angle=angle,
         total_nm=total,
         eta_min=eta,
-        points=[(lat, lon), join_ll, intercept_ll, threshold],
-        descent=descent_advice(
-            altitude_ft - intercept_alt, to_join - decel_nm, speed
-        ),
+        points=[here] + fixed,
+        point_labels=["JOIN", "FINAL", "RWY"][step:],
+        descent=descent,
         speeds=speeds,
         decel_nm=decel_nm,
+        phase=phase,
     )
 
 

@@ -16,7 +16,7 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, runway_heading
-from .divert import Divert, path_text, speeds, vectors
+from .divert import Divert, next_phase, path_text, plan_route, speeds, vectors
 from .divert_view import DivertDialog, ils_text
 from .enroute import (
     enroute_hazards,
@@ -211,6 +211,10 @@ class UI:
         self._divert_layers = []
         # Route length when the diversion started, for its progress bar
         self._divert_total = None
+        # Fixed points of the diversion, set from the first position, and the
+        # leg being flown
+        self._divert_route = None
+        self._divert_phase = "direct"
         self._paths = paths
         self._winds_aloft = None
         self._background_running = True
@@ -436,7 +440,10 @@ class UI:
                             "font-size: 0.85rem; color: orange"
                         ):
                             self._divert_title = ui.label("")
-                            self._divert_legs = ui.label("")
+                            # One bullet per leg still to fly
+                            self._divert_legs = ui.label("").style(
+                                "white-space: pre-line"
+                            )
                             # Live height against the glide path, on hover
                             self._divert_path = ui.tooltip("").style(
                                 "font-size: 0.85rem"
@@ -583,6 +590,8 @@ class UI:
     def start_divert(self, icao, label, runway):
         self._divert_target = (icao, label, runway)
         self._divert_total = None
+        self._divert_route = None
+        self._divert_phase = "direct"
         self._divert_box.set_visibility(True)
         self.update_divert()
         self.update_weather()
@@ -609,6 +618,11 @@ class UI:
         # sends it
         weight = self._plan.weight_kg or a20n.mlw
         wind = metar_wind(self.metar(icao))
+        if self._divert_route is None:
+            self._divert_route = plan_route(loc.latitude, loc.longitude, runway)
+        self._divert_phase = next_phase(
+            self._divert_route, loc.latitude, loc.longitude, self._divert_phase
+        )
         v = vectors(
             loc.latitude,
             loc.longitude,
@@ -617,12 +631,10 @@ class UI:
             loc.variation,
             runway,
             speeds(a20n, weight, wind, runway, self._plan.landing_conf),
+            self._divert_route,
+            self._divert_phase,
         )
         ils = ils_text(runway)
-        self._divert_title.set_text(
-            f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
-            + (f" · {ils}" if ils else "")
-        )
         direct, intercept, final = v.legs
         eta = ""
         if v.eta_min:
@@ -636,16 +648,31 @@ class UI:
         if v.decel_nm >= 1:
             decel = f", slow to {direct.speed_kt:.0f}kt in the last {v.decel_nm:.0f}nm"
         mlw = "" if self._plan.weight_kg else " MLW"
-        self._divert_legs.set_text(
-            f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
-            f"{v.intercept_alt_ft}ft{descent}{decel} → "
-            f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
-            f"{v.intercept_alt_ft}ft, slow to {intercept.speed_kt:.0f}kt → "
+        # Only the legs still to fly
+        parts = []
+        if not direct.done:
+            parts.append(
+                f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
+                f"{v.intercept_alt_ft}ft{descent}{decel}"
+            )
+        if not intercept.done:
+            parts.append(
+                f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
+                f"{v.intercept_alt_ft}ft"
+                + (descent if direct.done else "")
+                + f", slow to {intercept.speed_kt:.0f}kt"
+            )
+        parts.append(
             f"FINAL {final.heading_mag:03.0f}° {final.distance:.0f}nm "
             f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
-            f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw}) · "
-            f"{v.total_nm:.0f}nm{eta}"
+            f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw})"
         )
+        self._divert_title.set_text(
+            f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
+            + (f" · {ils}" if ils else "")
+            + f" · {v.total_nm:.0f}nm{eta}"
+        )
+        self._divert_legs.set_text("\n".join(f"• {part}" for part in parts))
         self._draw_divert(v)
         self._show_divert_progress(v)
         self.update_divert_path()
@@ -669,7 +696,7 @@ class UI:
                 ],
             )
         )
-        for point, name in zip(v.points[1:], ("JOIN", "FINAL", "RWY")):
+        for point, name in zip(v.points[1:], v.point_labels):
             marker = self._map.marker(latlng=point)
             marker.run_method(":setIcon", ICON_DIAMOND("orange"))
             marker.run_method("bindTooltip", name, TOOLTIP_OPTIONS)
@@ -756,20 +783,26 @@ class UI:
             return 0 if not total else max(0, min(100, 100 * along / total))
 
         _, intercept, final = v.legs
-        markers = [
-            (
-                percent(total - intercept.distance - final.distance),
-                "◆",
-                "orange",
-                f"intercept, HDG {intercept.heading_mag:03.0f}°",
-            ),
-            (
-                percent(total - final.distance),
-                "◆",
-                "orange",
-                f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
-            ),
-        ]
+        # Turn points still ahead
+        markers = []
+        if v.phase == "direct":
+            markers.append(
+                (
+                    percent(total - intercept.distance - final.distance),
+                    "◆",
+                    "orange",
+                    f"intercept, HDG {intercept.heading_mag:03.0f}°",
+                )
+            )
+        if v.phase != "final":
+            markers.append(
+                (
+                    percent(total - final.distance),
+                    "◆",
+                    "orange",
+                    f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
+                )
+            )
         self._draw_progress(
             ("divert", icao, runway.name),
             "DIV",
