@@ -33,6 +33,15 @@ STABLE_FT = 1000
 # Vapp wind correction: a third of the headwind, within these limits, kt
 APPR_COR_MIN = 5
 APPR_COR_MAX = 15
+# Autobrake target decelerations, m/s²; MAX is for takeoff only
+AUTOBRAKE = {"LO": 1.7, "MED": 3.0}
+# Threshold to touchdown, and the brakes building up to full decel, m
+AIR_DISTANCE_M = 400
+BRAKE_DELAY_M = 200
+# Margin on the landing distance, and extra on a wet runway
+LANDING_MARGIN = 1.15
+WET_FACTOR = 1.15
+KT_TO_MS = 0.514444
 # Airports listed as nearby, and how far to look, nm
 NEARBY_COUNT = 30
 NEARBY_RADIUS = 400
@@ -140,6 +149,29 @@ def speeds(airframe, weight_kg, wind, runway: "RunwayEnd", conf="FULL") -> Speed
         green_dot=green_dot(weight_kg),
         headwind=head,
     )
+
+
+@dataclass
+class Brake:
+    # "LO", "MED", or "" when neither fits the runway
+    mode: str
+    # Distance needed with the margin, ft
+    needed_ft: float
+
+
+def autobrake(vapp, headwind_kt, elevation_ft, length_ft, wet=False) -> Brake:
+    """Lowest autobrake whose landing distance, with a margin, fits the
+    runway: touchdown at Vapp as true airspeed less the headwind, then the
+    autobrake's target decel with no reversers"""
+    ground_speed = vapp * (1 + 0.02 * max(elevation_ft, 0) / 1000) - headwind_kt
+    v = max(ground_speed, 0) * KT_TO_MS
+    factor = LANDING_MARGIN * (WET_FACTOR if wet else 1)
+    for mode, decel in AUTOBRAKE.items():
+        metres = AIR_DISTANCE_M + BRAKE_DELAY_M + v * v / (2 * decel)
+        needed = metres * factor * M_TO_FT
+        if needed <= length_ft:
+            return Brake(mode, needed)
+    return Brake("", needed)
 
 
 def expedite_ft_per_nm(ground_speed_kt) -> float:

@@ -94,6 +94,20 @@ class Weather:
         return metar
 
 
+# Precipitation that leaves a runway wet or worse
+WET_PRECIP = ("RA", "DZ", "SN", "SG", "PL", "GR", "GS", "UP")
+
+
+def is_wet(metar) -> bool:
+    """True when the METAR reports precipitation at the field"""
+    if not metar:
+        return False
+    for _, descriptor, precip, _, _ in metar.weather:
+        if descriptor != "VC" and any(p in (precip or "") for p in WET_PRECIP):
+            return True
+    return False
+
+
 def metar_wind(metar):
     """(direction or None when variable, speed kt), None without a METAR"""
     if not metar or not metar.wind_speed:

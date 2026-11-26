@@ -33,7 +33,7 @@ from .generate_view import (
     approach_tip,
     severity_colour,
 )
-from .weather import challenge, metar_wind
+from .weather import HAZARD_ICONS, challenge, is_wet, metar_wind
 from .grib import WindsAloft, latest_grib
 from .places import download_missing
 from .to.airframe import a20n
@@ -460,6 +460,13 @@ class UI:
             self._generator,
             location=lambda: self._plan.location,
             metar=self.metar,
+            speeds=lambda wind, runway: speeds(
+                a20n,
+                self._plan.weight_kg or a20n.mlw,
+                wind,
+                runway,
+                self._plan.landing_conf,
+            ),
             on_divert=self.start_divert,
         )
         self._planner = PlannerDialog(
@@ -803,6 +810,9 @@ class UI:
         """METAR text led by the hazard summary, coloured by how hard it is"""
         wx = challenge(metar, [runway_heading(runway)] if runway else [])
         summary = f"{wx.icon} {wx.notes}".strip()
+        # Wet runway, unless the rain icon already shows it
+        if is_wet(metar) and wx.icon != HAZARD_ICONS["rain"]:
+            summary = f"💧{summary}"
         element.content = f"{summary} · {weather_text(metar)}"
         element.style(f"color: {severity_colour(wx.score)}")
 

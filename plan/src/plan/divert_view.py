@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from nicegui import run, ui
 
-from .divert import Divert, RunwayEnd
+from .divert import Divert, RunwayEnd, autobrake
 from .generate_view import (
     approach_colour,
     approach_text,
@@ -11,9 +11,10 @@ from .generate_view import (
     runway_wind,
     severity_colour,
 )
-from .weather import challenge, metar_wind
+from .weather import challenge, is_wet, metar_wind
 
 M_TO_FT = 3.28084
+BRAKE_COLOURS = {"LO": "#4caf50", "MED": "#ff9800", "": "#f44336"}
 MS_TO_KT = 1.943844
 # Minutes added to the direct flight time for joining final and flying it
 APPROACH_MINUTES = 3
@@ -33,10 +34,12 @@ class DivertDialog:
     """Airports near the aircraft, or any found by search; then a runway,
     which on_divert(icao, label, runway) turns into vectors on the main page."""
 
-    def __init__(self, divert: Divert, generator, location, metar, on_divert):
+    def __init__(self, divert: Divert, generator, location, metar, speeds, on_divert):
         """location() gives the sim Location, metar(icao) the latest METAR or
-        None, on_divert(icao, label, runway) starts guidance to a runway."""
+        None, speeds(wind, runway) the approach Speeds, on_divert(icao, label,
+        runway) starts guidance to a runway."""
         self._divert = divert
+        self._speeds = speeds
         self._generator = generator
         self._location = location
         self._metar = metar
@@ -96,6 +99,8 @@ class DivertDialog:
                      "sortable": True},
                     {"name": "hdg", "label": "Hdg", "field": "hdg"},
                     {"name": "wind", "label": "Wind", "field": "wind", "align": "left"},
+                    {"name": "brake", "label": "Brake", "field": "brake",
+                     "align": "left"},
                     {"name": "ils", "label": "ILS", "field": "ils", "align": "left"},
                     {"name": "app", "label": "Approaches", "field": "app",
                      "align": "left"},
@@ -105,7 +110,7 @@ class DivertDialog:
                 selection="single",
                 on_select=self._select_runway,
             ).props("dense").classes("w-full")
-            colour_weather_cells(self._runways_table, "app")
+            colour_weather_cells(self._runways_table, "app", "brake")
 
     async def open(self):
         self._dialog.open()
@@ -195,7 +200,9 @@ class DivertDialog:
         self._airport = row
         icao = row["icao"]
         variation = (self._aircraft() or (0, 0, 0, 0))[3]
-        wind = metar_wind(self._metar(icao))
+        metar = self._metar(icao)
+        wind = metar_wind(metar)
+        wet = is_wet(metar)
         approaches = await run.io_bound(self._generator.runway_approaches, icao)
         self._runways = await run.io_bound(self._divert.runways, icao)
         if not self._runways:
@@ -208,12 +215,21 @@ class DivertDialog:
         for runway in self._runways:
             apps = approaches.get(runway.name, [])
             best = min((cls.tier for _, cls in apps), default=5)
+            s = self._speeds(wind, runway)
+            brake = autobrake(
+                s.vapp, s.headwind, runway.elevation_ft, runway.length_ft, wet
+            )
             rows.append(
                 {
                     "rwy": runway.name,
                     "length": runway.length_ft,
                     "hdg": f"{runway.heading_mag(variation):03.0f}",
                     "wind": runway_wind(runway.name, wind),
+                    "brake": f"{brake.mode or 'SHORT'} {brake.needed_ft:.0f}ft"
+                    + (" wet" if wet else ""),
+                    "brake_colour": BRAKE_COLOURS[brake.mode],
+                    "brake_tip": f"VAPP {s.vapp:.0f} CONF {s.conf}, "
+                    f"headwind {s.headwind:.0f}kt, with a margin and no reversers",
                     "ils": ils_text(runway),
                     "app": ", ".join(approach_text(n, c) for n, c in apps) or "Visual",
                     "app_colour": approach_colour(best),
