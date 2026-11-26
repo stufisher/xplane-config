@@ -16,7 +16,16 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, runway_heading
-from .divert import Divert, next_phase, path_text, plan_route, speeds, vectors
+from .divert import (
+    ON_PATH_FT,
+    WELL_OFF_PATH_FT,
+    Divert,
+    glide_check,
+    next_phase,
+    plan_route,
+    speeds,
+    vectors,
+)
 from .divert_view import DivertDialog, ils_text
 from .enroute import (
     enroute_hazards,
@@ -444,10 +453,8 @@ class UI:
                             self._divert_legs = ui.label("").style(
                                 "white-space: pre-line"
                             )
-                            # Live height against the glide path, on hover
-                            self._divert_path = ui.tooltip("").style(
-                                "font-size: 0.85rem"
-                            )
+                            # Height against the glide path, shown on final
+                            self._divert_path = ui.label("")
                         ui.button(icon="close", on_click=self.clear_divert).props(
                             "flat round dense"
                         ).tooltip("Stop diverting")
@@ -675,7 +682,7 @@ class UI:
         self._divert_legs.set_text("\n".join(f"• {part}" for part in parts))
         self._draw_divert(v)
         self._show_divert_progress(v)
-        self.update_divert_path()
+        self.update_divert_path(log=True)
 
     def _draw_divert(self, v):
         """Dashed route and its turn points on the map, None to remove them"""
@@ -905,22 +912,40 @@ class UI:
         self._last_location_update_time = now
         self.update_divert_path()
 
-    def update_divert_path(self):
-        """Tooltip over the divert text with the height against the glide path"""
+    def update_divert_path(self, log=False):
+        """Height against the glide path under the legs once on final,
+        coloured by how far off it is; log writes its inputs to the log"""
         if not self._divert_target:
             return
         loc = self._plan.location
-        if loc.latitude is None:
+        if loc.latitude is None or self._divert_phase != "final":
+            self._divert_path.set_text("")
             return
-        self._divert_path.set_text(
-            path_text(
-                loc.latitude,
-                loc.longitude,
-                (loc.elevation or 0) * 3.28084,
-                loc.groundspeed * 1.943844 if loc.groundspeed else None,
-                self._divert_target[2],
-            )
+        runway = self._divert_target[2]
+        check = glide_check(
+            loc.latitude,
+            loc.longitude,
+            loc.altitude_ft,
+            loc.groundspeed * 1.943844 if loc.groundspeed else None,
+            runway,
         )
+        self._divert_path.set_text(f"{runway.name} {check.text}")
+        if abs(check.off) < ON_PATH_FT * 3:
+            colour = "#4caf50"
+        elif abs(check.off) < WELL_OFF_PATH_FT:
+            colour = "#ffc107"
+        else:
+            colour = "#f44336"
+        self._divert_path.style(f"color: {colour}")
+        if log:
+            true_ft = (loc.elevation or 0) * 3.28084
+            logger.info(
+                f"Divert path {runway.name}: altimeter "
+                f"{loc.indicated_ft if loc.indicated_ft is not None else '-'}ft, "
+                f"above sea level {true_ft:.0f}ft, runway {runway.elevation_ft}ft, "
+                f"{check.distance:.1f}nm, path {check.path:.0f}ft above, "
+                f"{check.where}"
+            )
 
     def update_weather(self):
         # While diverting the arrival side shows the diversion airport

@@ -427,28 +427,64 @@ def vectors(
     )
 
 
-def path_text(lat, lon, altitude_ft, ground_speed_kt, runway: RunwayEnd) -> str:
+# How far off the glide path counts as on it, and as well off it, ft
+ON_PATH_FT = 100
+WELL_OFF_PATH_FT = 600
+
+
+@dataclass
+class GlideCheck:
+    distance: float
+    # Above the runway, and where the glide path is at this distance, ft
+    height: float
+    path: float
+    angle: float
+    # Vertical speed to reach the threshold from here, and to stay on the
+    # path, fpm; None when not moving
+    vs_needed: float | None
+    vs_on_path: float | None
+
+    @property
+    def off(self):
+        """Above the path, ft; negative when below it"""
+        return self.height - self.path
+
+    @property
+    def where(self):
+        if abs(self.off) < ON_PATH_FT:
+            return "on path"
+        return f"{abs(self.off):.0f}ft {'high' if self.off > 0 else 'low'}"
+
+    @property
+    def text(self):
+        text = (
+            f"{self.distance:.1f}nm, {self.height:.0f}ft above, "
+            f"{self.angle:.1f}° path {self.path:.0f}ft: {self.where}"
+        )
+        if self.vs_needed is not None:
+            text += f"; VS {self.vs_needed:.0f}fpm, on path {self.vs_on_path:.0f}fpm"
+        return text
+
+
+def glide_check(lat, lon, altitude_ft, ground_speed_kt, runway: RunwayEnd) -> GlideCheck:
     """Height against the glide path to the threshold, and the VS to stay on
     it; distance is direct to the threshold, so only meaningful on final"""
     angle = runway.ils.glideslope if runway.ils and runway.ils.glideslope else 3.0
     glide_ft_per_nm = math.tan(math.radians(angle)) * 6076
     distance = nm((lat, lon), (runway.lat, runway.lon))
     height = altitude_ft - runway.elevation_ft
-    path = THRESHOLD_HEIGHT + distance * glide_ft_per_nm
-    off = height - path
-    if abs(off) < 100:
-        where = "on path"
-    else:
-        where = f"{abs(off):.0f}ft {'high' if off > 0 else 'low'}"
-    text = (
-        f"{runway.name} {distance:.1f}nm, {height:.0f}ft above, "
-        f"{angle:.1f}° path {path:.0f}ft: {where}"
-    )
+    vs_needed = vs_on_path = None
     if ground_speed_kt and ground_speed_kt > 50 and distance > 0.3:
-        vs = max(height - THRESHOLD_HEIGHT, 0) * ground_speed_kt / (60 * distance)
-        on_path = ground_speed_kt * glide_ft_per_nm / 60
-        text += f"; VS to threshold {vs:.0f}fpm, on path {on_path:.0f}fpm"
-    return text
+        vs_needed = max(height - THRESHOLD_HEIGHT, 0) * ground_speed_kt / (60 * distance)
+        vs_on_path = ground_speed_kt * glide_ft_per_nm / 60
+    return GlideCheck(
+        distance=distance,
+        height=height,
+        path=THRESHOLD_HEIGHT + distance * glide_ft_per_nm,
+        angle=angle,
+        vs_needed=vs_needed,
+        vs_on_path=vs_on_path,
+    )
 
 
 def descent_advice(height_to_lose, distance, ground_speed_kt=None) -> str:
