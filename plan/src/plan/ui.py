@@ -3,6 +3,7 @@ import asyncio
 import base64
 from contextlib import contextmanager
 import logging
+import math
 import os
 import time
 import uuid
@@ -657,24 +658,45 @@ class UI:
         if v.decel_nm >= 1:
             decel = f", slow to {direct.speed_kt:.0f}kt in the last {v.decel_nm:.0f}nm"
         mlw = "" if self._plan.weight_kg else " MLW"
+        # Tracks come from the geometry; the headings for them allow for the
+        # wind aloft here, and on final for the airport's wind
+        aloft = self.winds_aloft()
+        wind_here = (
+            aloft.wind(loc.latitude, loc.longitude, loc.altitude_ft) if aloft else None
+        )
+        speed = ground_speed or 0
+
+        def trk(track, at_airport=False):
+            if at_airport:
+                return track_text(track, wind, loc.variation, s.vapp)
+            return track_text(track, wind_here, loc.variation, speed)
+
         # Only the legs still to fly
         parts = []
         if not direct.done:
             parts.append(
-                f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
+                f"{trk(direct.heading_mag)} {direct.distance:.0f}nm, down to "
                 f"{v.intercept_alt_ft}ft{descent}{decel}"
             )
         if not intercept.done:
             parts.append(
-                f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
+                f"{trk(intercept.heading_mag)} {intercept.distance:.0f}nm at "
                 f"{v.intercept_alt_ft}ft"
                 + (descent if direct.done else "")
                 + f", slow to {intercept.speed_kt:.0f}kt"
             )
+        steer = ""
+        if v.steer_mag is not None:
+            side = "right" if v.off_centreline_nm > 0 else "left"
+            steer = (
+                f" · steer {trk(v.steer_mag, at_airport=True)}, "
+                f"{abs(v.off_centreline_nm):.1f}nm {side} of centreline"
+            )
         parts.append(
-            f"FINAL {final.heading_mag:03.0f}° {final.distance:.0f}nm "
+            f"FINAL {trk(final.heading_mag, at_airport=True)} {final.distance:.0f}nm "
             f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
             f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw})"
+            + steer
         )
         self._divert_title.set_text(
             f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
@@ -812,7 +834,7 @@ class UI:
                     percent(flown + direct.distance),
                     "◆",
                     "orange",
-                    f"join: turn to HDG {intercept.heading_mag:03.0f}°",
+                    f"join: turn to TRK {intercept.heading_mag:03.0f}°",
                     f"JOIN {direct.distance:.0f}nm",
                 )
             )
@@ -1121,6 +1143,24 @@ class UI:
         if self._log_handler:
             logger.removeHandler(self._log_handler)
         await self._plan.shutdown()
+
+
+def wind_heading(track_mag, wind, variation, airspeed_kt):
+    """Heading to hold a magnetic track in a (direction true, speed kt) wind,
+    None without a wind or speed"""
+    if not wind or wind[0] is None or not airspeed_kt or airspeed_kt < 50:
+        return None
+    wind_mag = wind[0] + variation
+    ratio = wind[1] * math.sin(math.radians(wind_mag - track_mag)) / airspeed_kt
+    return (track_mag + math.degrees(math.asin(max(-1.0, min(1.0, ratio))))) % 360
+
+
+def track_text(track_mag, wind, variation, airspeed_kt):
+    """e.g. "TRK 136° (HDG 129°)": the track to fly in TRK mode, and the
+    heading for it in HDG mode"""
+    heading = wind_heading(track_mag, wind, variation, airspeed_kt)
+    hdg = f" (HDG {heading:03.0f}°)" if heading is not None else ""
+    return f"TRK {track_mag:03.0f}°{hdg}"
 
 
 def window_size(value: str) -> str:

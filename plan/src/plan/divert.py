@@ -207,6 +207,10 @@ class Vectors:
     # Map labels of the points after the aircraft
     point_labels: list[str] = field(default_factory=list)
     phase: str = "direct"
+    # On final: heading to steer back to the centreline, None when on it, and
+    # how far off it the aircraft is, nm, positive to the right
+    steer_mag: float | None = None
+    off_centreline_nm: float = 0.0
 
 
 def read_ils(earth_nav_path) -> dict:
@@ -268,6 +272,12 @@ ON_FINAL_NM = 1
 # not so far that the join point, close to the converging centreline, counts
 EARLY_FINAL_NM = 2
 PHASES = ("direct", "intercept", "final")
+# Steering onto the centreline: the closing angle is at most the intercept
+# angle, aiming no closer than this ahead; on final, aim this far ahead
+MIN_LEAD_NM = 1.0
+FINAL_LEAD_NM = 2.0
+# Off the centreline by less than this counts as on it, nm
+ON_CENTRELINE_NM = 0.1
 
 
 @dataclass
@@ -353,17 +363,42 @@ def vectors(
     route = route or plan_route(lat, lon, runway)
     here = (lat, lon)
     step = PHASES.index(phase)
+    # Where the aircraft is against the extended centreline: distance out on
+    # the approach side, and off it, positive to the right
+    thr = route.threshold
+    ux, uy = unit(route.final_true)
+    ax, ay = to_local(thr, here)
+    out = -(ax * ux + ay * uy)
+    off_right = -(ux * ay - uy * ax)
+
+    def centreline(distance_out):
+        return from_local(thr, (-distance_out * ux, -distance_out * uy))
+
     to_join = nm(here, route.join) if step == 0 else 0.0
+    intercept_heading = (route.intercept_true + variation) % 360
+    steer_mag = None
     if step == 0:
         to_intercept = INTERCEPT_NM
+        to_threshold = FINAL_NM
     elif step == 1:
-        to_intercept = nm(here, route.intercept)
+        # Head for the centreline ahead, closing at no more than the
+        # intercept angle, from wherever the join point was passed
+        lead = max(abs(off_right) / math.tan(math.radians(INTERCEPT_ANGLE)), MIN_LEAD_NM)
+        aim_out = max(out - lead, 0)
+        aim = centreline(aim_out)
+        intercept_heading = (course(here, aim) + variation) % 360
+        to_intercept = nm(here, aim)
+        to_threshold = aim_out
     else:
         to_intercept = 0.0
-    to_threshold = FINAL_NM if step < 2 else nm(here, route.threshold)
+        to_threshold = nm(here, thr)
+        # Off the centreline on final: steer for it a little ahead
+        if abs(off_right) >= ON_CENTRELINE_NM:
+            aim = centreline(max(out - FINAL_LEAD_NM, 0))
+            steer_mag = (course(here, aim) + variation) % 360
     legs = [
         Leg("Direct", (course(here, route.join) + variation) % 360, to_join),
-        Leg("Intercept", (route.intercept_true + variation) % 360, to_intercept),
+        Leg("Intercept", intercept_heading, to_intercept),
         Leg("Final", runway.heading_mag(variation), to_threshold),
     ]
     for leg in legs[:step]:
@@ -424,6 +459,8 @@ def vectors(
         speeds=speeds,
         decel_nm=decel_nm,
         phase=phase,
+        steer_mag=steer_mag,
+        off_centreline_nm=off_right,
     )
 
 
