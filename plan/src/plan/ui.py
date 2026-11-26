@@ -209,6 +209,8 @@ class UI:
         # Airport label and runway being diverted to, None when not diverting
         self._divert_target = None
         self._divert_layers = []
+        # Route length when the diversion started, for its progress bar
+        self._divert_total = None
         self._paths = paths
         self._winds_aloft = None
         self._background_running = True
@@ -580,13 +582,18 @@ class UI:
 
     def start_divert(self, icao, label, runway):
         self._divert_target = (icao, label, runway)
+        self._divert_total = None
         self._divert_box.set_visibility(True)
         self.update_divert()
+        self.update_weather()
 
     def clear_divert(self):
         self._divert_target = None
+        self._divert_total = None
         self._divert_box.set_visibility(False)
         self._draw_divert(None)
+        self.update_weather()
+        self.update_enroute()
 
     def update_divert(self):
         """Vectors from the aircraft to the diversion runway, kept up to date"""
@@ -640,6 +647,7 @@ class UI:
             f"{v.total_nm:.0f}nm{eta}"
         )
         self._draw_divert(v)
+        self._show_divert_progress(v)
         self.update_divert_path()
 
     def _draw_divert(self, v):
@@ -673,7 +681,8 @@ class UI:
         plan = self._plan.current
         if not plan:
             self._enroute_weather.set_text("")
-            self._show_progress(None, None, 0, None, [])
+            if not self._divert_target:
+                self._show_progress(None, None, 0, None, [])
             return
         path = path_waypoints(plan)
         points = route_points(path, step=5)
@@ -688,7 +697,8 @@ class UI:
         )
         loc = self._plan.location
         position = position_along(points, loc.latitude, loc.longitude)
-        self._show_progress(plan, position, route_length(path), wind, hazards)
+        if not self._divert_target:
+            self._show_progress(plan, position, route_length(path), wind, hazards)
 
     def _show_progress(self, plan, position, total, wind, hazards):
         """Redraw the route progress bar when anything on it has changed"""
@@ -722,18 +732,63 @@ class UI:
                 )
             )
         filled = percent(position) if position is not None else 0
-        key = (plan and plan.file_path, round(filled), tuple(markers))
+        self._draw_progress(
+            plan and plan.file_path,
+            plan.ADEP if plan else "",
+            plan.ADES if plan else "",
+            filled,
+            f"{position:.0f} / {total:.0f} nm"
+            if plan and position is not None
+            else f"{total:.0f} nm" if plan else "",
+            markers,
+        )
+
+    def _show_divert_progress(self, v):
+        """The bar as progress from where the diversion started to the runway,
+        with the intercept and final marked"""
+        icao, _, runway = self._divert_target
+        if self._divert_total is None or v.total_nm > self._divert_total:
+            self._divert_total = v.total_nm
+        total = self._divert_total
+        flown = total - v.total_nm
+
+        def percent(along):
+            return 0 if not total else max(0, min(100, 100 * along / total))
+
+        _, intercept, final = v.legs
+        markers = [
+            (
+                percent(total - intercept.distance - final.distance),
+                "◆",
+                "orange",
+                f"intercept, HDG {intercept.heading_mag:03.0f}°",
+            ),
+            (
+                percent(total - final.distance),
+                "◆",
+                "orange",
+                f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
+            ),
+        ]
+        self._draw_progress(
+            ("divert", icao, runway.name),
+            "DIV",
+            icao,
+            percent(flown),
+            f"{v.total_nm:.0f} nm to go / {total:.0f}",
+            markers,
+        )
+
+    def _draw_progress(self, owner, left, right, filled, text, markers):
+        """Redraw the progress bar when anything on it has changed"""
+        key = (owner, round(filled), tuple(markers))
         if key == self._progress_key:
             return
         self._progress_key = key
 
-        self._progress_dep.set_text(plan.ADEP if plan else "")
-        self._progress_arr.set_text(plan.ADES if plan else "")
-        self._progress_text.set_text(
-            f"{position:.0f} / {total:.0f} nm"
-            if plan and position is not None
-            else f"{total:.0f} nm" if plan else ""
-        )
+        self._progress_dep.set_text(left)
+        self._progress_arr.set_text(right)
+        self._progress_text.set_text(text)
         self._progress_bar.clear()
         with self._progress_bar:
             ui.element("div").style(
@@ -835,6 +890,10 @@ class UI:
         )
 
     def update_weather(self):
+        # While diverting the arrival side shows the diversion airport
+        if self._divert_target:
+            icao, _, runway = self._divert_target
+            self._show_arrival_weather(icao, self.metar(icao), runway.name)
         if not self._plan.current:
             return
         if self._plan.weather_dep:
@@ -847,16 +906,21 @@ class UI:
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
-        if self._plan.weather_des:
-            self.des_time.set_text(
-                f"{self._plan.current.ADES} {self._plan.weather_des.time:%H:%M}"
+        if not self._divert_target:
+            self._show_arrival_weather(
+                self._plan.current.ADES,
+                self._plan.weather_des,
+                self._plan.current.DESRWY,
             )
-            self._show_weather(
-                self.des_weather, self._plan.weather_des, self._plan.current.DESRWY
-            )
+
+    def _show_arrival_weather(self, icao, metar, runway):
+        if metar:
+            self.des_time.set_text(f"{icao} {metar.time:%H:%M}")
+            self._show_weather(self.des_weather, metar, runway)
         else:
-            self.des_time.set_text(f"{self._plan.current.ADES} --:--")
+            self.des_time.set_text(f"{icao} --:--")
             self.des_weather.content = "N/A"
+            self.des_weather.style("color: inherit")
 
     def _show_weather(self, element, metar, runway):
         """METAR text led by the hazard summary, coloured by how hard it is"""
