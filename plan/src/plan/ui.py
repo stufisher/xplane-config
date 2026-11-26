@@ -8,7 +8,7 @@ import time
 import uuid
 import webbrowser
 
-from nicegui import ui, app, events, run
+from nicegui import Client, ui, app, events, run
 from nicegui.element import Element
 
 from .plan import Plan
@@ -39,6 +39,9 @@ from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
 # Chrome app window size that fits the whole UI
 DEFAULT_WINDOW_SIZE = "956x652"
+# Seconds to wait after the last window disconnects before exiting, as a
+# reload disconnects briefly before the page connects again
+EXIT_GRACE_S = 5
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -800,6 +803,28 @@ def window_size(value: str) -> str:
     return f"{width},{height}"
 
 
+# Pending checks, kept so the event loop does not drop them
+_exit_checks = set()
+
+
+async def _exit_if_unused():
+    await asyncio.sleep(EXIT_GRACE_S)
+    if not any(client.has_socket_connection for client in Client.instances.values()):
+        logger.info("Last window closed, shutting down")
+        app.shutdown()
+
+
+def exit_when_unused():
+    """Shut the server down once no window has been connected for a while.
+
+    The check runs as its own task rather than one tied to the client that
+    left, which NiceGUI deletes after its reconnect timeout (3 s).
+    """
+    task = asyncio.get_running_loop().create_task(_exit_if_unused())
+    _exit_checks.add(task)
+    task.add_done_callback(_exit_checks.discard)
+
+
 def main(reload=False, show=True):
     parser = argparse.ArgumentParser(description="X-Plane flight plan UI")
     parser.add_argument(
@@ -834,6 +859,9 @@ def main(reload=False, show=True):
     app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
     app.on_startup(ui_inst.startup)
     app.on_shutdown(ui_inst.shutdown)
+    # The development server restarts itself, so only exit when run normally
+    if not reload:
+        app.on_disconnect(exit_when_unused)
     try:
         ui.run(ui_inst.page, reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
