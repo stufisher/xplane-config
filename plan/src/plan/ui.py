@@ -626,7 +626,7 @@ class UI:
         v = vectors(
             loc.latitude,
             loc.longitude,
-            (loc.elevation or 0) * 3.28084,
+            loc.altitude_ft,
             ground_speed,
             loc.variation,
             runway,

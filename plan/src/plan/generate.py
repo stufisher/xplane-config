@@ -521,6 +521,15 @@ class Generator:
         info = self._airports.get(icao)
         return Airport(icao, info, None, self._paths.cifp) if info else None
 
+    def field_elevation(self, icao):
+        """Highest runway threshold in the navdata, ft; airports-py's often
+        wrong elevation only when the navdata has none"""
+        apt = self._procedures(icao)
+        if apt and apt.runway_elevations:
+            return apt.elev
+        info = self._airports.get(icao, {})
+        return int(float(info.get("elevation_ft") or 0))
+
     def runway_approaches(self, icao):
         """Runway -> [(name, class)] of every approach to it, preferred first;
         a single Visual entry when it has none"""

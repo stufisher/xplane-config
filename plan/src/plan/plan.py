@@ -25,6 +25,16 @@ class Location:
     # m/s
     groundspeed: float | None = None
     mag_psi: float | None = None
+    # Captain's altimeter, ft, with its baro setting
+    indicated_ft: float | None = None
+
+    @property
+    def altitude_ft(self):
+        """The altitude the pilot flies: the altimeter, or above sea level
+        until the sim sends it"""
+        if self.indicated_ft is not None:
+            return self.indicated_ft
+        return (self.elevation or 0) * 3.28084
 
     @property
     def variation(self):
@@ -60,6 +70,7 @@ class Plan:
             "sim/flightmodel/position/psi,1",
             "sim/flightmodel/position/groundspeed,1",
             "sim/flightmodel/position/mag_psi,1",
+            "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0",
         ]
         # Gross weight, kg, for approach speeds
         self._weight_dref = "sim/flightmodel/weight/m_total,0"
@@ -354,6 +365,9 @@ class Plan:
         psi = self._rest.get_dref_value("sim/flightmodel/position/psi,1")
         groundspeed = self._rest.get_dref_value("sim/flightmodel/position/groundspeed,1")
         mag_psi = self._rest.get_dref_value("sim/flightmodel/position/mag_psi,1")
+        indicated = self._rest.get_dref_value(
+            "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0"
+        )
 
         return Location(
             latitude=latitude,
@@ -364,6 +378,7 @@ class Plan:
             psi=psi or 0,
             groundspeed=groundspeed,
             mag_psi=mag_psi,
+            indicated_ft=indicated,
         )
 
     async def shutdown(self):

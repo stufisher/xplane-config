@@ -506,7 +506,7 @@ class Divert:
         here, there = (lat, lon), (info["latitude"], info["longitude"])
         distance = nm(here, there)
         iata, city = self._generator.board(icao)
-        elevation = int(float(info.get("elevation_ft") or 0))
+        elevation = self._generator.field_elevation(icao)
         # Height to lose before the final approach, at an expedited descent
         intercept = elevation + FINAL_NM * DESCENT_FT_PER_NM
         gradient = expedite_ft_per_nm(ground_speed_kt)

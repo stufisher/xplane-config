@@ -122,7 +122,7 @@ class DivertDialog:
         loc = self._location()
         if loc is None or loc.latitude is None:
             return None
-        return loc.latitude, loc.longitude, (loc.elevation or 0) * M_TO_FT, loc.variation
+        return loc.latitude, loc.longitude, loc.altitude_ft, loc.variation
 
     def _speed(self):
         """Ground speed, kt, 0 without one"""
