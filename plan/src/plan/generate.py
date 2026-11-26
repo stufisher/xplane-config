@@ -469,23 +469,26 @@ class Generator:
             ),
         )
 
-    def destinations(self, adep, min_minutes=60, max_minutes=90):
-        """Airports within the block time range, shortest first."""
+    def destinations(self, adep, min_minutes=60, max_minutes=90, only=None):
+        """Airports within the block time range, shortest first; with only,
+        just that airport whatever its block time."""
         info = self._airports.get(adep)
         if info is None:
             raise KeyError(f"Unknown airport {adep}")
+        if only is not None and only not in self._airports:
+            raise KeyError(f"Unknown airport {only}")
         origin = (info["latitude"], info["longitude"])
         known = set()
         for head in plan_headers(self._paths.fms_plans):
             known.update(head.get(k) for k in ("ADEP", "ADES"))
         found = []
-        for icao in self._candidates:
+        for icao in [only] if only else self._candidates:
             if icao == adep:
                 continue
             other = self._airports[icao]
             distance = nm(origin, (other["latitude"], other["longitude"]))
             minutes = block_minutes(distance)
-            if min_minutes <= minutes <= max_minutes:
+            if only or min_minutes <= minutes <= max_minutes:
                 iata, city = self.board(icao)
                 found.append(
                     Destination(icao, iata, city, distance, minutes, icao in known)

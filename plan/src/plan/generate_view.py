@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import logging
 import math
+from types import SimpleNamespace
 
 from nicegui import run, ui
 
@@ -327,6 +328,18 @@ class PlannerDialog:
                 .props("dense")
                 .style("min-width: 280px")
             )
+            # Optional; when set Find shows just this airport, ready to generate
+            self._arrival = (
+                ui.select(
+                    self._generator.airport_choices(),
+                    label="Destination (optional)",
+                    with_input=True,
+                    clearable=True,
+                    on_change=self._preselect,
+                )
+                .props("dense")
+                .style("min-width: 280px")
+            )
             here = ui.button(icon="my_location", on_click=self._use_location)
             here.tooltip("Nearest airport to the aircraft")
             with ui.column().classes("flex-1 gap-0"):
@@ -418,12 +431,19 @@ class PlannerDialog:
         if icao:
             self._departure.value = icao
 
+    async def _preselect(self):
+        if self._departure.value:
+            await self._find()
+
     async def _find(self):
         adep = (self._departure.value or "").strip().upper()
+        ades = (self._arrival.value or "").strip().upper() or None
         value = self._range.value
 
         def search():
-            found = self._generator.destinations(adep, value["min"], value["max"])
+            found = self._generator.destinations(
+                adep, value["min"], value["max"], only=ades
+            )
             return found, [self._challenge(d.icao) for d in found]
 
         with busy(self._table, self._find_button):
@@ -456,6 +476,11 @@ class PlannerDialog:
         self._show_rows()
         self._destination = None
         self._generate_button.disable()
+        # A chosen destination is selected straight away, ready to generate
+        if ades and self._rows:
+            self._table.selected = [self._rows[0]]
+            self._table.update()
+            await self._select_destination(SimpleNamespace(selection=[self._rows[0]]))
 
     async def _select_destination(self, e):
         selected = e.selection[0]["icao"] if e.selection else None
