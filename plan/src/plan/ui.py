@@ -40,6 +40,29 @@ from .to.airframe import a20n
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
+APPROACH_HELP = """
+**Flying a 3° approach**
+
+- **FPA:** push TRK-FPA and set −3.0; it holds the path at any speed.
+  Hand flying, keep the bird just below the 2.5° mark.
+- **ILS:** on the intercept heading push APPR to capture LOC and G/S.
+- **Check height against distance:** about 300ft per nm above the runway.
+
+| Distance | Height |
+|---|---|
+| 10nm | 3200ft |
+| 5nm | 1600ft |
+| 3nm | 950ft |
+| 2nm | 650ft |
+
+High: steepen a little; low: shallow a little; then back to −3°.
+
+- **VS:** height × ground speed ÷ (60 × distance), or ground speed × 5.3 on
+  a 3° path; final ground speed is Vapp − headwind.
+- **Distance:** LS on shows the ILS DME on the PFD; the ND shows the
+  distance to the runway when it is in the FPLN.
+"""
+
 # Chrome app window size that fits the whole UI
 DEFAULT_WINDOW_SIZE = "956x652"
 # Seconds to wait after the last window disconnects before exiting, as a
@@ -262,6 +285,10 @@ class UI:
                                 icon="table_view", on_click=self.open_planner
                             )
                             planner_button.tooltip("Plans table and new plans")
+                            help_button = ui.button(
+                                icon="help_outline", on_click=lambda: self._help_dialog.open()
+                            )
+                            help_button.tooltip("Flying a 3° approach")
                     with Row().classes("flex-nowrap"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
@@ -457,6 +484,8 @@ class UI:
                 self._map.on(
                     "init", lambda: aircraft_marker.run_method(":setIcon", ICON_PLANE)
                 )
+        with ui.dialog() as self._help_dialog, ui.card():
+            ui.markdown(APPROACH_HELP)
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
         self._divert_dialog = DivertDialog(
