@@ -617,6 +617,25 @@ class UI:
             ui.button("Close", on_click=self._takeoff_dialog.close)
         self._takeoff_dialog.open()
 
+    def fit_route(self):
+        """Zoom the map to the whole route and stop following the aircraft,
+        which the centre button turns back on"""
+        points = [
+            (w.latitude, w.longitude)
+            for _, waypoints in self._plan.current.segments
+            for w in waypoints
+        ]
+        if not points:
+            return
+        lats, lons = zip(*points)
+        self._map.run_map_method(
+            "fitBounds",
+            [[min(lats), min(lons)], [max(lats), max(lons)]],
+            {"padding": [20, 20]},
+        )
+        if self._map_center.value:
+            self._map_center.toggle()
+
     def update_location(self):
         if not self._map_center:
             return
@@ -739,6 +758,8 @@ class UI:
                         ],
                     )
                 )
+
+        self.fit_route()
 
         route = []
         for waypoint in self._plan.current.waypoints:
