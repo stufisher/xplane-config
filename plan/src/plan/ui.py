@@ -640,7 +640,15 @@ class UI:
             ground_speed,
             loc.variation,
             runway,
-            speeds(a20n, weight, wind, runway, self._plan.landing_conf),
+            speeds(
+                a20n,
+                weight,
+                wind,
+                runway,
+                self._plan.landing_conf,
+                self._plan.landing_vls,
+                self._plan.green_dot,
+            ),
             self._divert_route,
             self._divert_phase,
         )
@@ -695,7 +703,9 @@ class UI:
         parts.append(
             f"FINAL {trk(final.heading_mag, at_airport=True)} {final.distance:.0f}nm "
             f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
-            f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw})"
+            f"(VLS {s.vls:.0f}{'' if s.vls_from_aircraft else ' est'} "
+            f"CONF {'F' if s.conf == 'FULL' else s.conf}, "
+            f"{s.weight_kg / 1000:.1f}t{mlw})"
             + steer
         )
         self._divert_title.set_text(
@@ -1156,10 +1166,10 @@ def wind_heading(track_mag, wind, variation, airspeed_kt):
 
 
 def track_text(track_mag, wind, variation, airspeed_kt):
-    """e.g. "TRK 136° (HDG 129°)": the track to fly in TRK mode, and the
+    """e.g. "TRK 136° (H 129°)": the track to fly in TRK mode, and the
     heading for it in HDG mode"""
     heading = wind_heading(track_mag, wind, variation, airspeed_kt)
-    hdg = f" (HDG {heading:03.0f}°)" if heading is not None else ""
+    hdg = f" (H {heading:03.0f}°)" if heading is not None else ""
     return f"TRK {track_mag:03.0f}°{hdg}"
 
 

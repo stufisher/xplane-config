@@ -123,6 +123,8 @@ class Speeds:
     green_dot: float
     # Headwind on the runway, kt, negative for a tailwind
     headwind: float
+    # VLS from the aircraft itself rather than the estimated table
+    vls_from_aircraft: bool = False
 
 
 def green_dot(weight_kg) -> float:
@@ -138,9 +140,18 @@ def headwind(wind, heading_true) -> float:
     return speed * math.cos(math.radians(direction - heading_true))
 
 
-def speeds(airframe, weight_kg, wind, runway: "RunwayEnd", conf="FULL") -> Speeds:
-    """VLS, Vapp (VLS plus a third of the headwind) and green dot"""
-    vls = airframe.vls(conf, weight_kg)
+def speeds(
+    airframe,
+    weight_kg,
+    wind,
+    runway: "RunwayEnd",
+    conf="FULL",
+    aircraft_vls=None,
+    aircraft_green_dot=None,
+) -> Speeds:
+    """VLS, Vapp (VLS plus a third of the headwind) and green dot; the
+    aircraft's own VLS and green dot replace the estimates when given"""
+    vls = aircraft_vls or airframe.vls(conf, weight_kg)
     head = headwind(wind, runway.heading_true)
     correction = min(max(head / 3, APPR_COR_MIN), APPR_COR_MAX)
     return Speeds(
@@ -148,8 +159,9 @@ def speeds(airframe, weight_kg, wind, runway: "RunwayEnd", conf="FULL") -> Speed
         conf=conf,
         vls=vls,
         vapp=vls + correction,
-        green_dot=green_dot(weight_kg),
+        green_dot=aircraft_green_dot or green_dot(weight_kg),
         headwind=head,
+        vls_from_aircraft=bool(aircraft_vls),
     )
 
 
@@ -354,9 +366,9 @@ def vectors(
 
     variation is magnetic minus true heading at the aircraft, used for legs
     other than the final, whose course comes from the localizer when there is
-    one. The intercept leg is flown level at the final's intercept altitude,
-    so the direct leg descends to it from altitude_ft, then levels off to slow
-    to green dot by the join point. The intercept leg slows to about F speed
+    one. The intercept leg is flown level at the glide path's altitude where
+    it meets the final, so the direct leg descends to it from altitude_ft,
+    then levels off to slow to green dot by the join point. The intercept leg slows to about F speed
     and the final to Vapp by 1000ft. Speeds are taken as ground speeds, with
     the runway headwind taken off the final.
     """
@@ -406,7 +418,10 @@ def vectors(
 
     angle = runway.ils.glideslope if runway.ils and runway.ils.glideslope else 3.0
     glide_ft_per_nm = math.tan(math.radians(angle)) * 6076
-    intercept_alt = runway.elevation_ft + THRESHOLD_HEIGHT + FINAL_NM * glide_ft_per_nm
+    # On the glide path where final is joined: the planned intercept point,
+    # or the centreline point being steered for once past the join point
+    join_out = to_threshold if step < 2 else FINAL_NM
+    intercept_alt = runway.elevation_ft + THRESHOLD_HEIGHT + join_out * glide_ft_per_nm
     intercept_alt = int(round(intercept_alt, -2))
     total = sum(leg.distance for leg in legs)
     moving = ground_speed_kt and ground_speed_kt > 50

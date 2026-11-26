@@ -76,6 +76,11 @@ class Plan:
         self._weight_dref = "sim/flightmodel/weight/m_total,0"
         # GPWS LDG FLAP 3 switch, non zero when landing in CONF 3
         self._flap3_dref = "AirbusFBW/GPWSSwitchArray[3],0"
+        # The aircraft's own VLS for its current config, green dot, and the
+        # flap lever, 0 clean to 4 FULL
+        self._vls_dref = "toliss_airbus/pfdoutputs/general/VLS_value,0"
+        self._green_dot_dref = "toliss_airbus/pfdoutputs/general/VGreenDot_value,0"
+        self._flap_lever_dref = "AirbusFBW/FlapRequestPos,0"
         self._update_time = update_time
         self._update_location = update_location
 
@@ -93,7 +98,14 @@ class Plan:
         await self._rest._init()
         self._rest.set_subscribed_drefs(
             self._location_drefs
-            + [self._time_dref, self._weight_dref, self._flap3_dref]
+            + [
+                self._time_dref,
+                self._weight_dref,
+                self._flap3_dref,
+                self._vls_dref,
+                self._green_dot_dref,
+                self._flap_lever_dref,
+            ]
         )
         background_tasks.create(self._rest.socket_client())
 
@@ -353,6 +365,22 @@ class Plan:
     def landing_conf(self):
         """Landing config for VLS: "3" with LDG FLAP 3 on, else FULL"""
         return "3" if self._rest.get_dref_value(self._flap3_dref) else "FULL"
+
+    @property
+    def landing_vls(self):
+        """The aircraft's VLS once the flap lever is in the landing config,
+        None before then or until the sim sends it"""
+        lever = self._rest.get_dref_value(self._flap_lever_dref)
+        landing_lever = 3 if self.landing_conf == "3" else 4
+        vls = self._rest.get_dref_value(self._vls_dref)
+        if lever is None or int(lever) != landing_lever or not vls:
+            return None
+        return vls
+
+    @property
+    def green_dot(self):
+        """The aircraft's green dot speed, None until the sim sends it"""
+        return self._rest.get_dref_value(self._green_dot_dref) or None
 
     @property
     def location(self):
