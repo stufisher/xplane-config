@@ -808,7 +808,7 @@ class UI:
             "DIV",
             icao,
             percent(flown),
-            f"{v.total_nm:.0f} nm to go / {total:.0f}",
+            f"{flown:.0f} / {total:.0f} nm",
             markers,
         )
 
