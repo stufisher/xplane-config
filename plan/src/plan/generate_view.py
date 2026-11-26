@@ -11,6 +11,8 @@ from .weather import challenge, metar_wind
 logger = logging.getLogger(__name__)
 
 AUTO = "Auto"
+# Plans judged between progress bar updates
+PLAN_BATCH = 5
 
 
 def hours_minutes(minutes: float) -> str:
@@ -183,6 +185,13 @@ class PlannerDialog:
             )
             self._plans_refresh = ui.button(icon="refresh", on_click=self._load_plans)
             self._plans_refresh.tooltip("Reload plans and weather")
+        # Filled as the plans are read and judged
+        self._plans_progress = ui.linear_progress(value=0, show_value=False).classes(
+            "w-full"
+        )
+        self._plans_progress_label = ui.label("").classes("text-xs")
+        self._plans_progress.set_visibility(False)
+        self._plans_progress_label.set_visibility(False)
         self._plans_table = ui.table(
             columns=[
                 {"name": "dep", "label": "From", "field": "dep", "align": "left",
@@ -261,13 +270,34 @@ class PlannerDialog:
         return ends_score + enroute_score
 
     async def _load_plans(self):
-        def rows():
+        def setup():
             # Reading the plan folder and the weather is slow, keep it off the UI
-            winds, stations = self._winds(), self._stations()
-            return [self._plan_row(plan, winds, stations) for plan in self._plans()]
+            return self._plans(), self._winds(), self._stations()
 
-        with busy(self._plans_table, self._plans_refresh):
-            self._plan_rows = await run.io_bound(rows)
+        def progress(done, total, text):
+            self._plans_progress.set_value(done / total if total else 0)
+            self._plans_progress_label.set_text(text)
+
+        for element in (self._plans_progress, self._plans_progress_label):
+            element.set_visibility(True)
+        progress(0, 1, "Reading plans...")
+        rows = []
+        try:
+            with busy(self._plans_table, self._plans_refresh):
+                plans, winds, stations = await run.io_bound(setup)
+                # Small batches so the bar moves while the rows are worked out
+                for start in range(0, len(plans), PLAN_BATCH):
+                    batch = plans[start : start + PLAN_BATCH]
+                    rows += await run.io_bound(
+                        lambda batch=batch: [
+                            self._plan_row(plan, winds, stations) for plan in batch
+                        ]
+                    )
+                    progress(len(rows), len(plans), f"{len(rows)} / {len(plans)} plans")
+        finally:
+            for element in (self._plans_progress, self._plans_progress_label):
+                element.set_visibility(False)
+        self._plan_rows = rows
         self._show_plans()
 
     def _show_plans(self):
