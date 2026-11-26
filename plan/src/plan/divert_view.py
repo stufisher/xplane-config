@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 from nicegui import run, ui
@@ -140,7 +141,9 @@ class DivertDialog:
         metar = self._metar(airport.icao)
         wx = challenge(metar, [])
         if airport.too_high_nm:
-            reach, reach_colour = f"too high, +{airport.too_high_nm:.0f}nm", "#f44336"
+            # Rounded up, so a small shortfall never reads +0nm
+            extra = math.ceil(airport.too_high_nm)
+            reach, reach_colour = f"too high, +{extra}nm", "#f44336"
         else:
             reach, reach_colour = "ok", "#4caf50"
         return {

@@ -497,7 +497,8 @@ def descent_advice(height_to_lose, distance, ground_speed_kt=None) -> str:
     expedited = height_to_lose / expedite_ft_per_nm(ground_speed_kt)
     if expedited <= distance:
         return "descend now"
-    return f"too high, +{expedited - distance:.0f}nm"
+    # Rounded up, so a small shortfall never reads +0nm
+    return f"too high, +{math.ceil(expedited - distance)}nm"
 
 
 class Divert:
