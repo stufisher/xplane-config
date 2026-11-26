@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import logging
+import math
 
 from nicegui import run, ui
 
@@ -33,13 +34,62 @@ def severity_colour(score: int) -> str:
     return "#f44336"
 
 
+# Approach tiers 1 (CAT II/III ILS) to 5 (flown by hand), green to red
+APPROACH_COLOURS = {1: "#4caf50", 2: "#8bc34a", 3: "#ffc107", 4: "#ff9800", 5: "#f44336"}
+
+
+def approach_colour(tier: int) -> str:
+    return APPROACH_COLOURS[tier]
+
+
+def approach_text(name, cls) -> str:
+    """e.g. "I26 ILS CAT I", or "Visual" when there is no approach"""
+    return f"{name} {cls.kind}" if name else cls.kind
+
+
+def runway_wind(runway, wind) -> str:
+    """Head or tailwind and crosswind on a runway, e.g. "head 10kt, cross 12kt";
+    wind is (direction or None when variable, speed kt) or None"""
+    if not wind:
+        return ""
+    direction, speed = wind
+    if direction is None:
+        return f"variable {speed:.0f}kt"
+    angle = math.radians(direction - runway_heading(runway))
+    along = speed * math.cos(angle)
+    cross = abs(speed * math.sin(angle))
+    text = f"{'head' if along >= 0 else 'tail'} {abs(along):.0f}kt"
+    return text + (f", cross {cross:.0f}kt" if cross >= 1 else "")
+
+
+def approach_tip(runway_approaches, wind=None) -> str:
+    """One line per runway: its wind and every approach to it, e.g.
+    "RW26 · head 15kt: R26-E RNAV, L26 LOC" """
+    lines = []
+    for runway, approaches in runway_approaches.items():
+        on_runway = runway_wind(runway, wind)
+        label = f"{runway} · {on_runway}" if on_runway else runway
+        lines.append(
+            f"{label}: " + ", ".join(approach_text(name, cls) for name, cls in approaches)
+        )
+    return "\n".join(lines)
+
+
+def with_approach(score, approach_score):
+    """Add the approach to a score; unknown (-1) stays so only with an ILS CAT II/III"""
+    if score < 0:
+        return approach_score if approach_score > 0 else -1
+    return score + approach_score
+
+
 def colour_weather_cells(table: ui.table, *names: str):
     """Show each named weather cell in the colour stored as <name>_colour."""
     for name in names:
         table.add_slot(
             f"body-cell-{name}",
             f'''<q-td :props="props">
-                <span :style="{{color: props.row.{name}_colour}}">{{{{ props.value }}}}</span>
+                <span :style="{{color: props.row.{name}_colour}}"
+                      :title="props.row.{name}_tip" style="white-space: pre-line">{{{{ props.value }}}}</span>
             </q-td>''',
         )
 
@@ -128,7 +178,7 @@ class PlannerDialog:
     def _build_plans(self):
         with ui.row().classes("w-full items-center"):
             self._plans_hardest_first = ui.switch(
-                "Hardest first (weather and short runways)",
+                "Hardest first (weather, runways and approach)",
                 on_change=self._show_plans,
             )
             self._plans_refresh = ui.button(icon="refresh", on_click=self._load_plans)
@@ -147,6 +197,8 @@ class PlannerDialog:
                  "align": "left"},
                 {"name": "enroute", "label": "Enroute", "field": "enroute",
                  "align": "left"},
+                {"name": "app", "label": "Approach", "field": "app", "align": "left",
+                 "sortable": True},
                 {"name": "dep_rwy", "label": "Dep rwy ft", "field": "dep_rwy",
                  "sortable": True},
                 {"name": "arr_rwy", "label": "Arr rwy ft", "field": "arr_rwy",
@@ -157,7 +209,7 @@ class PlannerDialog:
             selection="single",
             on_select=self._select_plan,
         ).props("dense virtual-scroll").style("height: 320px")
-        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "enroute")
+        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "enroute", "app")
 
     def _plan_row(self, plan, winds, stations):
         """Table row for an existing plan, judged on its planned runways and
@@ -171,6 +223,7 @@ class PlannerDialog:
         wind = enroute_wind(points, winds) if winds else None
         hazard = enroute_hazard(points, stations, self._metar)
         enroute_score = hazard.challenge.score if hazard else 0
+        approach = self._generator.approach_class(plan.ADES, plan.APP)
         distance = self._generator.distance_nm(plan.ADEP, plan.ADES)
         minutes = block_minutes(distance) if distance else 0
         return {
@@ -186,9 +239,18 @@ class PlannerDialog:
             "arr_wx_colour": severity_colour(weather[1].score),
             "enroute": enroute_text(wind, hazard),
             "enroute_colour": severity_colour(enroute_score),
+            "app": approach_text(plan.APP, approach),
+            "app_colour": approach_colour(approach.tier),
+            "app_tip": approach_tip(
+                self._generator.runway_approaches(plan.ADES),
+                metar_wind(self._metar(plan.ADES)),
+            ),
             "dep_rwy": lengths[0] or "",
             "arr_rwy": lengths[1] or "",
-            "score": self._route_score(combined_score(weather, lengths), enroute_score),
+            "score": with_approach(
+                self._route_score(combined_score(weather, lengths), enroute_score),
+                approach.score,
+            ),
         }
 
     @staticmethod
@@ -249,7 +311,7 @@ class PlannerDialog:
             self._find_button = ui.button("Find", on_click=self._find)
         self._update_range_label()
         self._bad_weather_first = ui.switch(
-            "Hardest first (weather and short runways)", on_change=self._show_rows
+            "Hardest first (weather, runways and approach)", on_change=self._show_rows
         )
 
         self._table = ui.table(
@@ -264,6 +326,8 @@ class PlannerDialog:
                 {"name": "time", "label": "Block", "field": "time", "sortable": True},
                 {"name": "rwy", "label": "Rwy ft", "field": "rwy", "sortable": True},
                 {"name": "wx", "label": "Weather", "field": "wx", "align": "left"},
+                {"name": "app", "label": "Approach", "field": "app", "align": "left",
+                 "sortable": True},
                 {"name": "known", "label": "Plans", "field": "known"},
             ],
             rows=[],
@@ -271,7 +335,7 @@ class PlannerDialog:
             selection="single",
             on_select=self._select_destination,
         ).props("dense virtual-scroll").classes("w-full").style("height: 160px")
-        colour_weather_cells(self._table, "wx")
+        colour_weather_cells(self._table, "wx", "app")
 
         # Equal columns, each field filling its own, so no label is clipped
         with ui.grid(columns=4).classes("w-full gap-4"):
@@ -301,10 +365,14 @@ class PlannerDialog:
         )
 
     def _challenge(self, icao):
-        """Weather challenge and the longest runway length for a destination."""
+        """Weather challenge, longest runway length, the planned approach and
+        what each runway offers, for a destination."""
         runways = self._generator.runways(icao)
-        wx = challenge(self._metar(icao), [runway_heading(rw) for rw in runways])
-        return wx, self._generator.longest_runway_ft(icao)
+        metar = self._metar(icao)
+        wx = challenge(metar, [runway_heading(rw) for rw in runways])
+        planned = self._generator.planned_approach(icao, metar_wind(metar))
+        others = approach_tip(self._generator.runway_approaches(icao), metar_wind(metar))
+        return wx, self._generator.longest_runway_ft(icao), planned, others
 
     def _show_rows(self):
         self._table.rows = sort_rows(self._rows, self._bad_weather_first.value)
@@ -347,10 +415,13 @@ class PlannerDialog:
                 "rwy": length or "",
                 "wx": weather_text(wx),
                 "wx_colour": severity_colour(wx.score),
-                "score": combined_score([wx], [length]),
+                "app": f"{runway} {approach_text(name, cls)}" if runway else cls.kind,
+                "app_colour": approach_colour(cls.tier),
+                "app_tip": others,
+                "score": with_approach(combined_score([wx], [length]), cls.score),
                 "known": "✈" if d.known else "",
             }
-            for d, (wx, length) in zip(found, weather)
+            for d, (wx, length, (runway, name, cls), others) in zip(found, weather)
         ]
         self._show_rows()
         self._destination = None
@@ -384,7 +455,10 @@ class PlannerDialog:
             return
         approaches = await run.io_bound(self._generator.approaches, icao, runway)
         # The first approach is the preferred one, which Auto also picks
-        self._approach.set_options([AUTO] + approaches, value=AUTO)
+        options = {AUTO: AUTO}
+        for name in approaches:
+            options[name] = f"{name} – {self._generator.approach_class(icao, name).kind}"
+        self._approach.set_options(options, value=AUTO)
 
     async def _generate(self):
         adep = (self._departure.value or "").strip().upper()

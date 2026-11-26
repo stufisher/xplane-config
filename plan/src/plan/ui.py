@@ -25,8 +25,13 @@ from .enroute import (
     route_length,
     route_points,
 )
-from .generate_view import PlannerDialog, severity_colour
-from .weather import challenge
+from .generate_view import (
+    PlannerDialog,
+    approach_colour,
+    approach_tip,
+    severity_colour,
+)
+from .weather import challenge, metar_wind
 from .grib import WindsAloft, latest_grib
 from .places import download_missing
 from .to.view import takeoff_svg
@@ -76,9 +81,9 @@ def weather_text(metar) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def plan_detail(plan) -> tuple[str, str]:
-    """Departure and arrival lines, each in the order it is flown;
-    a transition shows as NAME.TRANS"""
+def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
+    """Departure line, and the arrival line split around the approach so it
+    can be coloured; each in the order it is flown, a transition as NAME.TRANS"""
 
     def named(name, trans):
         if not name:
@@ -90,10 +95,11 @@ def plan_detail(plan) -> tuple[str, str]:
 
     dep = f"{runway(plan.DEPRWY, plan.DEPRWY_LENGTH)} · {named(plan.SID, plan.SIDTRANS)}"
     arr = (
-        f"{named(plan.STAR, plan.STARTRANS)} · {named(plan.APP, plan.APPTRANS)} · "
-        f"{runway(plan.DESRWY, plan.DESRWY_LENGTH)}"
+        f"ARR {named(plan.STAR, plan.STARTRANS)} ·",
+        named(plan.APP, plan.APPTRANS),
+        f"· {runway(plan.DESRWY, plan.DESRWY_LENGTH)}",
     )
-    return f"DEP {dep}", f"ARR {arr}"
+    return f"DEP {dep}", arr
 
 
 @contextmanager
@@ -313,7 +319,15 @@ class UI:
                             "font-size: 0.85rem;"
                         ):
                             self._plan_dep = ui.label("").classes("w-full")
-                            self._plan_arr = ui.label("").classes("w-full")
+                            with ui.row().classes("w-full gap-x-1 gap-y-0"):
+                                self._plan_arr = ui.label("")
+                                self._plan_app = ui.label("")
+                                with self._plan_app:
+                                    # Every runway's wind and approaches
+                                    self._plan_app_tip = ui.tooltip("").style(
+                                        "white-space: pre-line"
+                                    )
+                                self._plan_arr_end = ui.label("")
                         with ui.button_group().classes("shrink-0"):
                             mcdu_init_button = ui.button(
                                 icon="computer",
@@ -670,10 +684,24 @@ class UI:
         if not self._plan.current:
             return
 
-        for label, text in zip(
-            (self._plan_dep, self._plan_arr), plan_detail(self._plan.current)
-        ):
-            label.set_text(text)
+        dep, (arr_start, app, arr_end) = plan_detail(self._plan.current)
+        self._plan_dep.set_text(dep)
+        self._plan_arr.set_text(arr_start)
+        self._plan_arr_end.set_text(arr_end)
+        # The approach carries its type, coloured from ILS (green) to manual (red)
+        approach = self._generator.approach_class(
+            self._plan.current.ADES, self._plan.current.APP
+        )
+        self._plan_app.set_text(
+            f"{app} {approach.kind}" if self._plan.current.APP else approach.kind
+        )
+        self._plan_app.style(f"color: {approach_colour(approach.tier)}")
+        self._plan_app_tip.set_text(
+            approach_tip(
+                self._generator.runway_approaches(self._plan.current.ADES),
+                metar_wind(self.metar(self._plan.current.ADES)),
+            )
+        )
 
         self._cruise_alt.value = self._plan.cruise
 

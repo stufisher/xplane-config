@@ -43,6 +43,47 @@ CRUISE_NM_PER_MIN = 7.5
 
 KIND_FIX, KIND_VOR, KIND_NDB = 11, 3, 2
 
+# Approach types by the first letter of the CIFP approach name
+APPROACH_TYPES = {
+    "I": "ILS", "J": "GLS", "R": "RNAV", "H": "RNP AR", "P": "GPS",
+    "L": "LOC", "B": "LOC BC", "G": "IGS", "X": "LDA", "U": "SDF",
+    "D": "VOR/DME", "S": "VOR/DME", "V": "VOR", "N": "NDB", "Q": "NDB/DME",
+    "T": "TACAN",
+}
+# Difficulty added by each approach tier, from coupled ILS to flown by hand
+APPROACH_SCORES = {1: 0, 2: 1, 3: 2, 4: 3, 5: 5}
+
+
+@dataclass
+class ApproachClass:
+    # 1 CAT II/III ILS, 2 CAT I ILS or GLS, 3 RNAV, 4 non-precision, 5 manual
+    tier: int
+    # e.g. "ILS CAT III", "LOC", "Circling", "Visual"
+    kind: str
+
+    @property
+    def score(self):
+        return APPROACH_SCORES[self.tier]
+
+
+def classify_approach(name, ils_categories) -> ApproachClass:
+    """Tier of an approach from its CIFP name; ils_categories maps runway
+    (26, 09L) to the ILS category, "I", "II" or "III"."""
+    if not name:
+        return ApproachClass(5, "Visual")
+    match = re.match(r"^([A-Z])(\d{2}[LCR]?)", name)
+    # Names without a runway, such as LOCA or VDMA, end in a circle to land
+    if not match:
+        return ApproachClass(5, "Circling")
+    letter, runway = match.groups()
+    if letter == "I":
+        category = ils_categories.get(runway, "I")
+        return ApproachClass(1 if category in ("II", "III") else 2, f"ILS CAT {category}")
+    if letter == "J":
+        return ApproachClass(2, "GLS")
+    kind = APPROACH_TYPES.get(letter, letter)
+    return ApproachClass(3 if letter in "RHP" else 4, kind)
+
 
 def nm(a, b):
     la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
@@ -360,6 +401,7 @@ class Generator:
         self._places = places or Places()
         self._nav = None
         self._apt_runways = {}
+        self._ils = None
         # The UI plans from worker threads, the navdata must only load once
         self._nav_lock = threading.Lock()
         self._airports = {}
@@ -452,6 +494,50 @@ class Generator:
 
     def runways(self, icao):
         return sorted(self.airport(icao).runways)
+
+    def ils_categories(self, icao):
+        """Runway (26, 09L) -> ILS category from earth_nav.dat, read once"""
+        if self._ils is None:
+            ils = defaultdict(dict)
+            try:
+                with open(self._paths.earth_nav) as f:
+                    for line in f:
+                        p = line.split()
+                        if len(p) > 11 and p[0] == "4" and p[11].startswith("ILS-cat-"):
+                            ils[p[8]][p[10]] = p[11].removeprefix("ILS-cat-")
+            except OSError:
+                pass
+            self._ils = ils
+        return self._ils.get(icao, {})
+
+    def approach_class(self, icao, approach):
+        return classify_approach(approach, self.ils_categories(icao))
+
+    def _procedures(self, icao):
+        """Runways and procedures from the CIFP file alone, without the navdata"""
+        info = self._airports.get(icao)
+        return Airport(icao, info, None, self._paths.cifp) if info else None
+
+    def runway_approaches(self, icao):
+        """Runway -> [(name, class)] of every approach to it, preferred first;
+        a single Visual entry when it has none"""
+        apt = self._procedures(icao)
+        result = {}
+        for runway in sorted(apt.runways) if apt else []:
+            names = [name for _, name, _ in apt.approaches(runway)] or [None]
+            result[runway] = [(name, self.approach_class(icao, name)) for name in names]
+        return result
+
+    def planned_approach(self, icao, wind=None):
+        """(runway, name, class) the generator would pick on arrival: runway
+        into the wind, then the one used most, then the prevailing wind"""
+        apt = self._procedures(icao)
+        runway = self._pick_runway(apt, arrival=True, wind=wind) if apt else None
+        if not runway:
+            return None, None, classify_approach(None, {})
+        apps = apt.approaches(runway)
+        name = apps[0][1] if apps else None
+        return runway, name, self.approach_class(icao, name)
 
     def _runway_ends(self, icao):
         """apt.dat runway ends by name (27, 09L), parsed once per airport"""
