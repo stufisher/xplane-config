@@ -86,7 +86,8 @@ def with_approach(score, approach_score):
 
 
 def colour_weather_cells(table: ui.table, *names: str):
-    """Show each named weather cell in the colour stored as <name>_colour."""
+    """Show each named weather cell in the colour stored as <name>_colour,
+    with <name>_tip on hover"""
     for name in names:
         table.add_slot(
             f"body-cell-{name}",
@@ -196,8 +197,10 @@ class PlannerDialog:
         self._plans_table = ui.table(
             columns=[
                 {"name": "dep", "label": "From", "field": "dep", "align": "left",
+                 "style": "white-space: pre-line",
                  "sortable": True},
                 {"name": "arr", "label": "To", "field": "arr", "align": "left",
+                 "style": "white-space: pre-line",
                  "sortable": True},
                 {"name": "nm", "label": "nm", "field": "nm", "sortable": True},
                 {"name": "time", "label": "Block", "field": "time", "sortable": True},
@@ -238,8 +241,9 @@ class PlannerDialog:
         minutes = block_minutes(distance) if distance else 0
         return {
             "path": plan.file_path,
-            "dep": f"{plan.departure_board} ({plan.ADEP}) {plan.DEPRWY or ''}",
-            "arr": f"{plan.destination_board} ({plan.ADES}) {plan.DESRWY or ''}",
+            # The runway on a line of its own keeps the column narrow
+            "dep": f"{plan.departure_board} ({plan.ADEP})\n{plan.DEPRWY or ''}",
+            "arr": f"{plan.destination_board} ({plan.ADES})\n{plan.DESRWY or ''}",
             "nm": round(distance) if distance else "",
             "time": hours_minutes(minutes) if distance else "",
             "minutes": minutes,
@@ -247,7 +251,8 @@ class PlannerDialog:
             "dep_wx_colour": severity_colour(weather[0].score),
             "arr_wx": weather_text(weather[1]),
             "arr_wx_colour": severity_colour(weather[1].score),
-            "enroute": enroute_text(wind, hazard),
+            # Wind and hazard on lines of their own
+            "enroute": enroute_text(wind, hazard).replace(" · ", "\n"),
             "enroute_colour": severity_colour(enroute_score),
             "app": approach_text(plan.APP, approach),
             "app_colour": approach_colour(approach.tier),
