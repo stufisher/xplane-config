@@ -16,6 +16,8 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, runway_heading
+from .divert import Divert, vectors
+from .divert_view import DivertDialog, ils_text
 from .enroute import (
     enroute_hazards,
     enroute_text,
@@ -179,6 +181,10 @@ class UI:
         self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
         self._udp = UDP(self._apt)
         self._generator = Generator(paths)
+        self._divert = Divert(self._generator)
+        # Airport label and runway being diverted to, None when not diverting
+        self._divert_target = None
+        self._divert_layers = []
         self._paths = paths
         self._winds_aloft = None
         self._background_running = True
@@ -247,6 +253,10 @@ class UI:
                                 on_click=lambda e: self.update_plans(),
                             )
                             plan_refresh_button.tooltip("Refresh plans")
+                            divert_button = ui.button(
+                                icon="alt_route", on_click=self.open_divert
+                            )
+                            divert_button.tooltip("Divert to a nearby airport")
                             planner_button = ui.button(
                                 icon="table_view", on_click=self.open_planner
                             )
@@ -390,6 +400,17 @@ class UI:
                         self._progress_arr = ui.label("").classes("text-xs")
                         self._progress_text = ui.label("").classes("text-xs")
                     self._progress_key = None
+                    # Vectors to a diversion runway, shown while diverting
+                    with ui.row().classes("w-full items-start no-wrap") as self._divert_box:
+                        with ui.column().classes("flex-1 min-w-0 gap-0").style(
+                            "font-size: 0.85rem; color: orange"
+                        ):
+                            self._divert_title = ui.label("")
+                            self._divert_legs = ui.label("")
+                        ui.button(icon="close", on_click=self.clear_divert).props(
+                            "flat round dense"
+                        ).tooltip("Stop diverting")
+                    self._divert_box.set_visibility(False)
 
                 with Card(grow=True):
                     log = ui.log(max_lines=5).style("height: 80px")
@@ -433,6 +454,13 @@ class UI:
                 )
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
+        self._divert_dialog = DivertDialog(
+            self._divert,
+            self._generator,
+            location=lambda: self._plan.location,
+            metar=self.metar,
+            on_divert=self.start_divert,
+        )
         self._planner = PlannerDialog(
             self._generator,
             plans=lambda: self._plan.plans,
@@ -504,6 +532,86 @@ class UI:
     async def _background_task(self):
         self.update_weather()
         self.update_enroute()
+        self.update_divert()
+
+    async def open_divert(self):
+        await self._divert_dialog.open()
+
+    def start_divert(self, icao, label, runway):
+        self._divert_target = (icao, label, runway)
+        self._divert_box.set_visibility(True)
+        self.update_divert()
+
+    def clear_divert(self):
+        self._divert_target = None
+        self._divert_box.set_visibility(False)
+        self._draw_divert(None)
+
+    def update_divert(self):
+        """Vectors from the aircraft to the diversion runway, kept up to date"""
+        if not self._divert_target:
+            return
+        icao, label, runway = self._divert_target
+        loc = self._plan.location
+        if loc.latitude is None:
+            self._divert_legs.set_text("Waiting for the aircraft position")
+            return
+        ground_speed = loc.groundspeed * 1.943844 if loc.groundspeed else None
+        v = vectors(
+            loc.latitude,
+            loc.longitude,
+            (loc.elevation or 0) * 3.28084,
+            ground_speed,
+            loc.variation,
+            runway,
+        )
+        ils = ils_text(runway)
+        self._divert_title.set_text(
+            f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
+            + (f" · {ils}" if ils else "")
+        )
+        direct, intercept, final = v.legs
+        eta = ""
+        if v.eta_min:
+            eta = f", ETA {v.eta_min:.0f} min"
+            if self._plan.time is not None:
+                arrival = (self._plan.time + v.eta_min * 60) % 86400
+                eta += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
+        descent = f" ({v.descent})" if v.descent else ""
+        self._divert_legs.set_text(
+            f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
+            f"{v.intercept_alt_ft}ft{descent} → "
+            f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
+            f"{v.intercept_alt_ft}ft → "
+            f"FINAL {final.heading_mag:03.0f}° {final.distance:.0f}nm "
+            f"({v.glide_angle:.1f}°) · {v.total_nm:.0f}nm{eta}"
+        )
+        self._draw_divert(v)
+
+    def _draw_divert(self, v):
+        """Dashed route and its turn points on the map, None to remove them"""
+        for layer in self._divert_layers:
+            try:
+                self._map.remove_layer(layer)
+            except Exception:
+                logger.debug("Could not remove divert layer")
+        self._divert_layers = []
+        if v is None:
+            return
+        self._divert_layers.append(
+            self._map.generic_layer(
+                name="polyline",
+                args=[
+                    v.points,
+                    {"color": "orange", "weight": 3, "dashArray": "8 6"},
+                ],
+            )
+        )
+        for point, name in zip(v.points[1:], ("JOIN", "FINAL", "RWY")):
+            marker = self._map.marker(latlng=point)
+            marker.run_method(":setIcon", ICON_DIAMOND("orange"))
+            marker.run_method("bindTooltip", name, TOOLTIP_OPTIONS)
+            self._divert_layers.append(marker)
 
     def update_enroute(self):
         """Winds aloft and cruise hazards along the current plan: one line of

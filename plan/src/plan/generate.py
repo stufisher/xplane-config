@@ -542,6 +542,18 @@ class Generator:
         name = apps[0][1] if apps else None
         return runway, name, self.approach_class(icao, name)
 
+    @property
+    def airports(self):
+        """ICAO -> airports-py record for every airport it knows"""
+        return self._airports
+
+    @property
+    def paths(self):
+        return self._paths
+
+    def runway_ends(self, icao):
+        return self._runway_ends(icao)
+
     def _runway_ends(self, icao):
         """apt.dat runway ends by name (27, 09L), parsed once per airport"""
         if icao not in self._apt_runways:
