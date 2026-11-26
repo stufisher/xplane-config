@@ -27,6 +27,8 @@ class Location:
     mag_psi: float | None = None
     # Captain's altimeter, ft, with its baro setting
     indicated_ft: float | None = None
+    # Any wheel on the ground
+    on_ground: bool = False
 
     @property
     def altitude_ft(self):
@@ -71,6 +73,7 @@ class Plan:
             "sim/flightmodel/position/groundspeed,1",
             "sim/flightmodel/position/mag_psi,1",
             "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0",
+            "sim/flightmodel/failures/onground_any,0",
         ]
         # Gross weight, kg, for approach speeds
         self._weight_dref = "sim/flightmodel/weight/m_total,0"
@@ -407,6 +410,9 @@ class Plan:
             groundspeed=groundspeed,
             mag_psi=mag_psi,
             indicated_ft=indicated,
+            on_ground=bool(
+                self._rest.get_dref_value("sim/flightmodel/failures/onground_any,0")
+            ),
         )
 
     async def shutdown(self):

@@ -16,7 +16,7 @@ from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
-from .generate import Generator, runway_heading
+from .generate import Generator, nm, runway_heading
 from .divert import (
     ON_PATH_FT,
     WELL_OFF_PATH_FT,
@@ -633,6 +633,16 @@ class UI:
         self._divert_phase = next_phase(
             self._divert_route, loc.latitude, loc.longitude, self._divert_phase
         )
+        # Landed: on the ground after final, within the runway's length
+        if (
+            self._divert_phase == "final"
+            and loc.on_ground
+            and nm((loc.latitude, loc.longitude), (runway.lat, runway.lon)) * 6076
+            <= runway.length_ft
+        ):
+            ui.notify(f"Landed at {label}, divert cleared")
+            self.clear_divert()
+            return
         v = vectors(
             loc.latitude,
             loc.longitude,
