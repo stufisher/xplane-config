@@ -53,6 +53,24 @@ class Airframe:
     Takeoff: Takeoff
     landing: Landing
     VSpeeds: Dict[str, Dict[int, int]]  # Directly use a dictionary for VSpeeds
+    # Landing VLS in kt by config ("FULL", "3") and weight in tonnes
+    VLS: Dict[str, Dict[int, int]]
+    # Multiplier applied to VLS, to tune the table against the aircraft
+    VLSScale: float = 1.0
+
+    def vls(self, conf: str, weight_kg: float) -> float:
+        """VLS in kt, linearly interpolated by weight and clamped to the table"""
+        table = self.VLS[conf]
+        weights = sorted(table)
+        tonnes = min(max(weight_kg / 1000, weights[0]), weights[-1])
+        for low, high in zip(weights, weights[1:]):
+            if tonnes <= high:
+                f = (tonnes - low) / (high - low)
+                speed = table[low] + f * (table[high] - table[low])
+                break
+        else:
+            speed = table[weights[-1]]
+        return speed * self.VLSScale
 
 
 # Create the A20N instance
@@ -125,6 +143,12 @@ a20n = Airframe(
             80: 141,
         },
     },
+    # Estimated: 70t figures from a forum post, scaled by sqrt(weight)
+    VLS={
+        "FULL": {40: 102, 45: 108, 50: 114, 55: 120, 60: 125, 65: 130, 70: 135, 75: 140, 79: 143},
+        "3": {40: 110, 45: 117, 50: 123, 55: 129, 60: 135, 65: 141, 70: 146, 75: 151, 79: 155},
+    },
+    VLSScale=1.06,
 )
 
 # Accessing example data

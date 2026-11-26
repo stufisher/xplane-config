@@ -22,6 +22,26 @@ class Location:
     theta: float
     phi: float
     psi: float
+    # m/s
+    groundspeed: float | None = None
+    mag_psi: float | None = None
+    # Captain's altimeter, ft, with its baro setting
+    indicated_ft: float | None = None
+
+    @property
+    def altitude_ft(self):
+        """The altitude the pilot flies: the altimeter, or above sea level
+        until the sim sends it"""
+        if self.indicated_ft is not None:
+            return self.indicated_ft
+        return (self.elevation or 0) * 3.28084
+
+    @property
+    def variation(self):
+        """Magnetic minus true heading, degrees; 0 until both are known"""
+        if self.mag_psi is None or self.psi is None:
+            return 0.0
+        return (self.mag_psi - self.psi + 180) % 360 - 180
 
 
 class Plan:
@@ -48,7 +68,14 @@ class Plan:
             "sim/flightmodel/position/theta,1",
             "sim/flightmodel/position/phi,1",
             "sim/flightmodel/position/psi,1",
+            "sim/flightmodel/position/groundspeed,1",
+            "sim/flightmodel/position/mag_psi,1",
+            "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0",
         ]
+        # Gross weight, kg, for approach speeds
+        self._weight_dref = "sim/flightmodel/weight/m_total,0"
+        # GPWS LDG FLAP 3 switch, non zero when landing in CONF 3
+        self._flap3_dref = "AirbusFBW/GPWSSwitchArray[3],0"
         self._update_time = update_time
         self._update_location = update_location
 
@@ -64,7 +91,10 @@ class Plan:
 
     async def _init(self):
         await self._rest._init()
-        self._rest.set_subscribed_drefs(self._location_drefs + [self._time_dref])
+        self._rest.set_subscribed_drefs(
+            self._location_drefs
+            + [self._time_dref, self._weight_dref, self._flap3_dref]
+        )
         background_tasks.create(self._rest.socket_client())
 
     async def load_plan(self, file_path: str):
@@ -96,6 +126,14 @@ class Plan:
         if not self._plan:
             return
         return self._weather.get_forecast(self._plan.ADES)
+
+    def forecast(self, icao: str):
+        """Latest METAR for any airport, None when the sim has none"""
+        return self._weather.get_forecast(icao)
+
+    def metar_stations(self):
+        """ICAO codes the sim has METARs for"""
+        return self._weather.stations()
 
     @property
     def weather_dep(self):
@@ -152,7 +190,12 @@ class Plan:
         else:
             logger.warning(f"Could not set departure SID `{sid}`")
 
-        await self._rest.press_button("2R")
+        # The first TRANS entry, at 2R, is NO TRANS
+        if not (
+            self._plan.SIDTRANS
+            and await self._select_transition(self._plan.SIDTRANS, "SID")
+        ):
+            await self._rest.press_button("2R")
         await self._rest.press_button("6R")
 
         # Setup dest
@@ -160,18 +203,16 @@ class Plan:
         await self._rest.press_button("1R")
 
         # Approach
-        des_runway = self._plan.DESRWY.replace("RW", "RWY")
+        # Plans to airports without procedures may have no arrival runway
+        des_runway = self._plan.DESRWY.replace("RW", "RWY") if self._plan.DESRWY else None
         app = self._plan.APP
         if app:
             logger.info(f"MCDU: Setting arrival approach {app}")
-            if app.startswith("L"):
-                app = app.replace("L", "LOC")
-            if app.startswith("I"):
-                app = app.replace("I", "ILS")
-            if app.startswith("G"):
-                app = app.replace("G", "IGS")
-            if app.startswith("R"):
-                app = app.replace("R", "RNV")
+            # Only a type letter in front of a runway is spelt out, e.g.
+            # R24RY -> RNV24RY; circling names such as LOCA stay as they are
+            prefixes = {"L": "LOC", "I": "ILS", "G": "IGS", "R": "RNV"}
+            if app[:1] in prefixes and app[1:2].isdigit():
+                app = prefixes[app[0]] + app[1:]
             row_id = await self._rest.find_row_in_display(app)
             if row_id is not None:
                 await self._rest.press_button(f"{row_id+1}L")
@@ -234,6 +275,16 @@ class Plan:
             else:
                 logger.info("Not removing discontinuity, part of manual")
 
+    async def _select_transition(self, transition: str, kind: str) -> bool:
+        """Pick a SID enroute transition from the TRANS column on the right"""
+        logger.info(f"MCDU: Setting {kind} transition {transition}")
+        row_id = await self._rest.find_row_in_display(transition, side="R")
+        if row_id is None:
+            logger.warning(f"Could not set {kind} transition `{transition}`")
+            return False
+        await self._rest.press_button(f"{row_id+1}R")
+        return True
+
     async def mcdu_perf(
         self, to_flaps="1", runway_condition=0, packs=True, anti_ice=False
     ):
@@ -294,6 +345,16 @@ class Plan:
         return seconds
 
     @property
+    def weight_kg(self):
+        """Gross weight, kg, None until the sim sends it"""
+        return self._rest.get_dref_value(self._weight_dref)
+
+    @property
+    def landing_conf(self):
+        """Landing config for VLS: "3" with LDG FLAP 3 on, else FULL"""
+        return "3" if self._rest.get_dref_value(self._flap3_dref) else "FULL"
+
+    @property
     def location(self):
         latitude = self._rest.get_dref_value("sim/flightmodel/position/latitude,3")
         longitude = self._rest.get_dref_value("sim/flightmodel/position/longitude,3")
@@ -302,6 +363,11 @@ class Plan:
         theta = self._rest.get_dref_value("sim/flightmodel/position/theta,1")
         phi = self._rest.get_dref_value("sim/flightmodel/position/phi,1")
         psi = self._rest.get_dref_value("sim/flightmodel/position/psi,1")
+        groundspeed = self._rest.get_dref_value("sim/flightmodel/position/groundspeed,1")
+        mag_psi = self._rest.get_dref_value("sim/flightmodel/position/mag_psi,1")
+        indicated = self._rest.get_dref_value(
+            "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0"
+        )
 
         return Location(
             latitude=latitude,
@@ -310,6 +376,9 @@ class Plan:
             theta=theta or 0,
             phi=phi or 0,
             psi=psi or 0,
+            groundspeed=groundspeed,
+            mag_psi=mag_psi,
+            indicated_ft=indicated,
         )
 
     async def shutdown(self):

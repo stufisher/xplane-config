@@ -8,19 +8,75 @@ import time
 import uuid
 import webbrowser
 
-from nicegui import ui, app, events, run
+from nicegui import Client, ui, app, events, run
 from nicegui.element import Element
 
 from .plan import Plan
 from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
+from .generate import Generator, runway_heading
+from .divert import (
+    ON_PATH_FT,
+    WELL_OFF_PATH_FT,
+    Divert,
+    glide_check,
+    next_phase,
+    plan_route,
+    speeds,
+    vectors,
+)
+from .divert_view import DivertDialog, ils_text
+from .enroute import (
+    enroute_hazards,
+    enroute_text,
+    enroute_wind,
+    path_waypoints,
+    position_along,
+    route_length,
+    route_points,
+)
+from .generate_view import (
+    PlannerDialog,
+    approach_colour,
+    approach_tip,
+    severity_colour,
+)
+from .weather import HAZARD_ICONS, challenge, is_wet, metar_wind
+from .grib import WindsAloft, latest_grib
 from .places import download_missing
+from .to.airframe import a20n
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
+APPROACH_HELP = """
+**Flying a 3° approach**
+
+- **FPA:** push TRK-FPA and set −3.0; it holds the path at any speed.
+  Hand flying, keep the bird just below the 2.5° mark.
+- **ILS:** on the intercept heading push APPR to capture LOC and G/S.
+- **Check height against distance:** about 300ft per nm above the runway.
+
+| Distance | Height |
+|---|---|
+| 10nm | 3200ft |
+| 5nm | 1600ft |
+| 3nm | 950ft |
+| 2nm | 650ft |
+
+High: steepen a little; low: shallow a little; then back to −3°.
+
+- **VS:** height × ground speed ÷ (60 × distance), or ground speed × 5.3 on
+  a 3° path; final ground speed is Vapp − headwind.
+- **Distance:** LS on shows the ILS DME on the PFD; the ND shows the
+  distance to the runway when it is in the FPLN.
+"""
+
 # Chrome app window size that fits the whole UI
 DEFAULT_WINDOW_SIZE = "956x652"
+# Seconds to wait after the last window disconnects before exiting, as a
+# reload disconnects briefly before the page connects again
+EXIT_GRACE_S = 5
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,6 +117,27 @@ def weather_text(metar) -> str:
         metar.present_weather(),
     ]
     return ", ".join(part for part in parts if part)
+
+
+def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
+    """Departure line, and the arrival line split around the approach so it
+    can be coloured; each in the order it is flown, a transition as NAME.TRANS"""
+
+    def named(name, trans):
+        if not name:
+            return "-"
+        return f"{name}.{trans}" if trans else name
+
+    def runway(name, length):
+        return f"{name or '-'} ({length or '-'}ft)"
+
+    dep = f"{runway(plan.DEPRWY, plan.DEPRWY_LENGTH)} · {named(plan.SID, plan.SIDTRANS)}"
+    arr = (
+        f"ARR {named(plan.STAR, plan.STARTRANS)} ·",
+        named(plan.APP, plan.APPTRANS),
+        f"· {runway(plan.DESRWY, plan.DESRWY_LENGTH)}",
+    )
+    return f"DEP {dep}", arr
 
 
 @contextmanager
@@ -136,6 +213,19 @@ class UI:
         self._apt = APT(paths)
         self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
         self._udp = UDP(self._apt)
+        self._generator = Generator(paths)
+        self._divert = Divert(self._generator)
+        # Airport label and runway being diverted to, None when not diverting
+        self._divert_target = None
+        self._divert_layers = []
+        # Route length when the diversion started, for its progress bar
+        self._divert_total = None
+        # Fixed points of the diversion, set from the first position, and the
+        # leg being flown
+        self._divert_route = None
+        self._divert_phase = "direct"
+        self._paths = paths
+        self._winds_aloft = None
         self._background_running = True
         self._map_markers = []
         self._map_lines = []
@@ -202,6 +292,18 @@ class UI:
                                 on_click=lambda e: self.update_plans(),
                             )
                             plan_refresh_button.tooltip("Refresh plans")
+                            divert_button = ui.button(
+                                icon="alt_route", on_click=self.open_divert
+                            )
+                            divert_button.tooltip("Divert to a nearby airport")
+                            planner_button = ui.button(
+                                icon="table_view", on_click=self.open_planner
+                            )
+                            planner_button.tooltip("Plans table and new plans")
+                            help_button = ui.button(
+                                icon="help_outline", on_click=lambda: self._help_dialog.open()
+                            )
+                            help_button.tooltip("Flying a 3° approach")
                     with Row().classes("flex-nowrap"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
@@ -267,12 +369,22 @@ class UI:
                             )
                             self._map_center.tooltip("Center map on plane location")
                     with Row():
-                        self._plan_detail = (
-                            ui.markdown("")
-                            .classes("flex-1")
-                            .style("font-size: 1rem;")
-                        )
-                        with ui.button_group():
+                        # The text wraps beside the buttons rather than pushing
+                        # them onto a line of their own
+                        with ui.column().classes("flex-1 min-w-0 gap-0").style(
+                            "font-size: 0.85rem;"
+                        ):
+                            self._plan_dep = ui.label("").classes("w-full")
+                            with ui.row().classes("w-full gap-x-1 gap-y-0"):
+                                self._plan_arr = ui.label("")
+                                self._plan_app = ui.label("")
+                                with self._plan_app:
+                                    # Every runway's wind and approaches
+                                    self._plan_app_tip = ui.tooltip("").style(
+                                        "white-space: pre-line"
+                                    )
+                                self._plan_arr_end = ui.label("")
+                        with ui.button_group().classes("shrink-0"):
                             mcdu_init_button = ui.button(
                                 icon="computer",
                                 on_click=lambda e: self.init_mcdu(e.sender),
@@ -316,6 +428,37 @@ class UI:
                                 ui.icon("flight_land").classes("text-2xl")
                                 self.des_time = ui.label("--:--")
                             self.des_weather = ui.markdown("6c hail 999mb")
+                    self._enroute_weather = ui.label("").classes("text-sm")
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        self._progress_dep = ui.label("").classes("text-xs")
+                        # Track of the whole route: flown part filled, hazards and
+                        # the strongest wind marked where they are
+                        self._progress_bar = (
+                            ui.element("div")
+                            .classes("flex-1 relative")
+                            .style(
+                                "height: 8px; background: #555; border-radius: 4px"
+                            )
+                        )
+                        self._progress_arr = ui.label("").classes("text-xs")
+                        self._progress_text = ui.label("").classes("text-xs")
+                    self._progress_key = None
+                    # Vectors to a diversion runway, shown while diverting
+                    with ui.row().classes("w-full items-start no-wrap") as self._divert_box:
+                        with ui.column().classes("flex-1 min-w-0 gap-0").style(
+                            "font-size: 0.85rem; color: orange"
+                        ):
+                            self._divert_title = ui.label("")
+                            # One bullet per leg still to fly
+                            self._divert_legs = ui.label("").style(
+                                "white-space: pre-line"
+                            )
+                            # Height against the glide path, shown on final
+                            self._divert_path = ui.label("")
+                        ui.button(icon="close", on_click=self.clear_divert).props(
+                            "flat round dense"
+                        ).tooltip("Stop diverting")
+                    self._divert_box.set_visibility(False)
 
                 with Card(grow=True):
                     log = ui.log(max_lines=5).style("height: 80px")
@@ -357,8 +500,34 @@ class UI:
                 self._map.on(
                     "init", lambda: aircraft_marker.run_method(":setIcon", ICON_PLANE)
                 )
+        with ui.dialog() as self._help_dialog, ui.card():
+            ui.markdown(APPROACH_HELP)
         with ui.dialog() as self._takeoff_dialog:
             self._takeoff_card = ui.card()
+        self._divert_dialog = DivertDialog(
+            self._divert,
+            self._generator,
+            location=lambda: self._plan.location,
+            metar=self.metar,
+            speeds=lambda wind, runway: speeds(
+                a20n,
+                self._plan.weight_kg or a20n.mlw,
+                wind,
+                runway,
+                self._plan.landing_conf,
+            ),
+            on_divert=self.start_divert,
+        )
+        self._planner = PlannerDialog(
+            self._generator,
+            plans=lambda: self._plan.plans,
+            location=self.aircraft_position,
+            metar=self.metar,
+            winds=self.winds_aloft,
+            stations=self.metar_stations,
+            on_select=self.show_plan,
+            on_generated=self.plan_generated,
+        )
 
         self.update_plans()
         ui.timer(10, lambda: self._background_task())
@@ -371,8 +540,308 @@ class UI:
 
         self._plan_select.set_options(opts, value=list(opts.keys())[0])
 
+    def aircraft_position(self):
+        loc = self._plan.location
+        if loc.latitude is None:
+            return None
+        return loc.latitude, loc.longitude
+
+    def metar(self, icao: str):
+        """Latest METAR from the sim's real weather, None without one"""
+        try:
+            return self._plan.forecast(icao)
+        except Exception:
+            logger.debug(f"No weather for {icao}")
+            return None
+
+    def winds_aloft(self):
+        """Winds from the newest real weather GRIB, reloaded when it changes"""
+        path = latest_grib(self._paths.real_weather)
+        if path is None:
+            return None
+        if self._winds_aloft is None or self._winds_aloft.path != path:
+            try:
+                self._winds_aloft = WindsAloft(path)
+            except (OSError, ValueError, IndexError):
+                logger.warning(f"Could not read winds from {path}")
+                return None
+        return self._winds_aloft
+
+    def metar_stations(self):
+        """ICAO -> (lat, lon) of every airport with a METAR"""
+        try:
+            codes = self._plan.metar_stations()
+        except Exception:
+            logger.debug("No METAR stations")
+            return {}
+        return self._generator.positions(codes)
+
+    async def open_planner(self):
+        await self._planner.open()
+
+    def show_plan(self, path: str):
+        self._plan_select.value = path
+
+    def plan_generated(self, path: str):
+        self.update_plans()
+        self.show_plan(path)
+
     async def _background_task(self):
         self.update_weather()
+        self.update_enroute()
+        self.update_divert()
+
+    async def open_divert(self):
+        await self._divert_dialog.open()
+
+    def start_divert(self, icao, label, runway):
+        self._divert_target = (icao, label, runway)
+        self._divert_total = None
+        self._divert_route = None
+        self._divert_phase = "direct"
+        self._divert_box.set_visibility(True)
+        self.update_divert()
+        self.update_weather()
+
+    def clear_divert(self):
+        self._divert_target = None
+        self._divert_total = None
+        self._divert_box.set_visibility(False)
+        self._draw_divert(None)
+        self.update_weather()
+        self.update_enroute()
+
+    def update_divert(self):
+        """Vectors from the aircraft to the diversion runway, kept up to date"""
+        if not self._divert_target:
+            return
+        icao, label, runway = self._divert_target
+        loc = self._plan.location
+        if loc.latitude is None:
+            self._divert_legs.set_text("Waiting for the aircraft position")
+            return
+        ground_speed = loc.groundspeed * 1.943844 if loc.groundspeed else None
+        # Landing weight taken as the current weight; the MLW until the sim
+        # sends it
+        weight = self._plan.weight_kg or a20n.mlw
+        wind = metar_wind(self.metar(icao))
+        if self._divert_route is None:
+            self._divert_route = plan_route(loc.latitude, loc.longitude, runway)
+        self._divert_phase = next_phase(
+            self._divert_route, loc.latitude, loc.longitude, self._divert_phase
+        )
+        v = vectors(
+            loc.latitude,
+            loc.longitude,
+            loc.altitude_ft,
+            ground_speed,
+            loc.variation,
+            runway,
+            speeds(a20n, weight, wind, runway, self._plan.landing_conf),
+            self._divert_route,
+            self._divert_phase,
+        )
+        ils = ils_text(runway)
+        direct, intercept, final = v.legs
+        eta = ""
+        if v.eta_min:
+            eta = f", ETA {v.eta_min:.0f} min"
+            if self._plan.time is not None:
+                arrival = (self._plan.time + v.eta_min * 60) % 86400
+                eta += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
+        descent = f" ({v.descent})" if v.descent else ""
+        s = v.speeds
+        decel = ""
+        if v.decel_nm >= 1:
+            decel = f", slow to {direct.speed_kt:.0f}kt in the last {v.decel_nm:.0f}nm"
+        mlw = "" if self._plan.weight_kg else " MLW"
+        # Only the legs still to fly
+        parts = []
+        if not direct.done:
+            parts.append(
+                f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
+                f"{v.intercept_alt_ft}ft{descent}{decel}"
+            )
+        if not intercept.done:
+            parts.append(
+                f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
+                f"{v.intercept_alt_ft}ft"
+                + (descent if direct.done else "")
+                + f", slow to {intercept.speed_kt:.0f}kt"
+            )
+        parts.append(
+            f"FINAL {final.heading_mag:03.0f}° {final.distance:.0f}nm "
+            f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
+            f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw})"
+        )
+        self._divert_title.set_text(
+            f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
+            + (f" · {ils}" if ils else "")
+            + f" · {v.total_nm:.0f}nm{eta}"
+        )
+        self._divert_legs.set_text("\n".join(f"• {part}" for part in parts))
+        self._draw_divert(v)
+        self._show_divert_progress(v)
+        self.update_divert_path(log=True)
+
+    def _draw_divert(self, v):
+        """Dashed route and its turn points on the map, None to remove them"""
+        for layer in self._divert_layers:
+            try:
+                self._map.remove_layer(layer)
+            except Exception:
+                logger.debug("Could not remove divert layer")
+        self._divert_layers = []
+        if v is None:
+            return
+        self._divert_layers.append(
+            self._map.generic_layer(
+                name="polyline",
+                args=[
+                    v.points,
+                    {"color": "orange", "weight": 3, "dashArray": "8 6"},
+                ],
+            )
+        )
+        for point, name in zip(v.points[1:], v.point_labels):
+            marker = self._map.marker(latlng=point)
+            marker.run_method(":setIcon", ICON_DIAMOND("orange"))
+            marker.run_method("bindTooltip", name, TOOLTIP_OPTIONS)
+            self._divert_layers.append(marker)
+
+    def update_enroute(self):
+        """Winds aloft and cruise hazards along the current plan: one line of
+        text and a progress bar with the aircraft's position"""
+        plan = self._plan.current
+        if not plan:
+            self._enroute_weather.set_text("")
+            if not self._divert_target:
+                self._show_progress(None, None, 0, None, [])
+            return
+        path = path_waypoints(plan)
+        points = route_points(path, step=5)
+        winds = self.winds_aloft()
+        wind = enroute_wind(points, winds) if winds else None
+        hazards = enroute_hazards(points, self.metar_stations(), self.metar)
+        hazard = max(hazards, key=lambda h: h.challenge.score, default=None)
+        text = enroute_text(wind, hazard) or "N/A"
+        self._enroute_weather.set_text(f"Enroute: {text}")
+        self._enroute_weather.style(
+            f"color: {severity_colour(hazard.challenge.score if hazard else 0)}"
+        )
+        loc = self._plan.location
+        position = position_along(points, loc.latitude, loc.longitude)
+        if not self._divert_target:
+            self._show_progress(plan, position, route_length(path), wind, hazards)
+
+    def _show_progress(self, plan, position, total, wind, hazards):
+        """Redraw the route progress bar when anything on it has changed"""
+
+        def where(along):
+            if position is None:
+                return f"at {along:.0f}nm"
+            ahead = along - position
+            return f"{abs(ahead):.0f}nm {'ahead' if ahead >= 0 else 'behind'}"
+
+        def percent(along):
+            return 0 if not total else max(0, min(100, 100 * along / total))
+
+        markers = [
+            (
+                percent(h.along),
+                h.challenge.icon,
+                severity_colour(h.challenge.score),
+                f"{h.challenge.notes} {h.station}, {where(h.along)}",
+            )
+            for h in hazards
+        ]
+        if wind and wind.max_speed:
+            markers.append(
+                (
+                    percent(wind.max_along),
+                    "▼",
+                    "white",
+                    f"max wind {wind.max_direction:03.0f}/{wind.max_speed:.0f}, "
+                    f"{where(wind.max_along)}",
+                )
+            )
+        filled = percent(position) if position is not None else 0
+        self._draw_progress(
+            plan and plan.file_path,
+            plan.ADEP if plan else "",
+            plan.ADES if plan else "",
+            filled,
+            f"{position:.0f} / {total:.0f} nm"
+            if plan and position is not None
+            else f"{total:.0f} nm" if plan else "",
+            markers,
+        )
+
+    def _show_divert_progress(self, v):
+        """The bar as progress from where the diversion started to the runway,
+        with the intercept and final marked"""
+        icao, _, runway = self._divert_target
+        if self._divert_total is None or v.total_nm > self._divert_total:
+            self._divert_total = v.total_nm
+        total = self._divert_total
+        flown = total - v.total_nm
+
+        def percent(along):
+            return 0 if not total else max(0, min(100, 100 * along / total))
+
+        _, intercept, final = v.legs
+        # Turn points still ahead
+        markers = []
+        if v.phase == "direct":
+            markers.append(
+                (
+                    percent(total - intercept.distance - final.distance),
+                    "◆",
+                    "orange",
+                    f"intercept, HDG {intercept.heading_mag:03.0f}°",
+                )
+            )
+        if v.phase != "final":
+            markers.append(
+                (
+                    percent(total - final.distance),
+                    "◆",
+                    "orange",
+                    f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
+                )
+            )
+        self._draw_progress(
+            ("divert", icao, runway.name),
+            "DIV",
+            icao,
+            percent(flown),
+            f"{flown:.0f} / {total:.0f} nm",
+            markers,
+        )
+
+    def _draw_progress(self, owner, left, right, filled, text, markers):
+        """Redraw the progress bar when anything on it has changed"""
+        key = (owner, round(filled), tuple(markers))
+        if key == self._progress_key:
+            return
+        self._progress_key = key
+
+        self._progress_dep.set_text(left)
+        self._progress_arr.set_text(right)
+        self._progress_text.set_text(text)
+        self._progress_bar.clear()
+        with self._progress_bar:
+            ui.element("div").style(
+                "position: absolute; left: 0; top: 0; bottom: 0; "
+                f"width: {filled:.1f}%; background: #2196f3; border-radius: 4px"
+            )
+            for left, icon, colour, tip in markers:
+                with ui.label(icon).style(
+                    f"position: absolute; left: {left:.1f}%; top: -9px; "
+                    f"transform: translateX(-50%); color: {colour}; "
+                    "font-size: 13px; line-height: 1; cursor: default"
+                ):
+                    ui.tooltip(tip)
 
     async def init_mcdu(self, element):
         with disable(element):
@@ -408,6 +877,25 @@ class UI:
             ui.button("Close", on_click=self._takeoff_dialog.close)
         self._takeoff_dialog.open()
 
+    def fit_route(self):
+        """Zoom the map to the whole route and stop following the aircraft,
+        which the centre button turns back on"""
+        points = [
+            (w.latitude, w.longitude)
+            for _, waypoints in self._plan.current.segments
+            for w in waypoints
+        ]
+        if not points:
+            return
+        lats, lons = zip(*points)
+        self._map.run_map_method(
+            "fitBounds",
+            [[min(lats), min(lons)], [max(lats), max(lons)]],
+            {"padding": [20, 20]},
+        )
+        if self._map_center.value:
+            self._map_center.toggle()
+
     def update_location(self):
         if not self._map_center:
             return
@@ -422,26 +910,85 @@ class UI:
         self._aircraft_marker.move(loc.latitude, loc.longitude)
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
         self._last_location_update_time = now
+        self.update_divert_path()
+
+    def update_divert_path(self, log=False):
+        """Height against the glide path under the legs once on final,
+        coloured by how far off it is; log writes its inputs to the log"""
+        if not self._divert_target:
+            return
+        loc = self._plan.location
+        if loc.latitude is None or self._divert_phase != "final":
+            self._divert_path.set_text("")
+            return
+        runway = self._divert_target[2]
+        check = glide_check(
+            loc.latitude,
+            loc.longitude,
+            loc.altitude_ft,
+            loc.groundspeed * 1.943844 if loc.groundspeed else None,
+            runway,
+        )
+        self._divert_path.set_text(f"{runway.name} {check.text}")
+        if abs(check.off) < ON_PATH_FT * 3:
+            colour = "#4caf50"
+        elif abs(check.off) < WELL_OFF_PATH_FT:
+            colour = "#ffc107"
+        else:
+            colour = "#f44336"
+        self._divert_path.style(f"color: {colour}")
+        if log:
+            true_ft = (loc.elevation or 0) * 3.28084
+            logger.info(
+                f"Divert path {runway.name}: altimeter "
+                f"{loc.indicated_ft if loc.indicated_ft is not None else '-'}ft, "
+                f"above sea level {true_ft:.0f}ft, runway {runway.elevation_ft}ft, "
+                f"{check.distance:.1f}nm, path {check.path:.0f}ft above, "
+                f"{check.where}"
+            )
 
     def update_weather(self):
+        # While diverting the arrival side shows the diversion airport
+        if self._divert_target:
+            icao, _, runway = self._divert_target
+            self._show_arrival_weather(icao, self.metar(icao), runway.name)
         if not self._plan.current:
             return
         if self._plan.weather_dep:
             self.dep_time.set_text(
                 f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
-            self.dep_weather.content = weather_text(self._plan.weather_dep)
+            self._show_weather(
+                self.dep_weather, self._plan.weather_dep, self._plan.current.DEPRWY
+            )
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
-        if self._plan.weather_des:
-            self.des_time.set_text(
-                f"{self._plan.current.ADES} {self._plan.weather_des.time:%H:%M}"
+        if not self._divert_target:
+            self._show_arrival_weather(
+                self._plan.current.ADES,
+                self._plan.weather_des,
+                self._plan.current.DESRWY,
             )
-            self.des_weather.content = weather_text(self._plan.weather_des)
+
+    def _show_arrival_weather(self, icao, metar, runway):
+        if metar:
+            self.des_time.set_text(f"{icao} {metar.time:%H:%M}")
+            self._show_weather(self.des_weather, metar, runway)
         else:
-            self.des_time.set_text(f"{self._plan.current.ADES} --:--")
+            self.des_time.set_text(f"{icao} --:--")
             self.des_weather.content = "N/A"
+            self.des_weather.style("color: inherit")
+
+    def _show_weather(self, element, metar, runway):
+        """METAR text led by the hazard summary, coloured by how hard it is"""
+        wx = challenge(metar, [runway_heading(runway)] if runway else [])
+        summary = f"{wx.icon} {wx.notes}".strip()
+        # Wet runway, unless the rain icon already shows it
+        if is_wet(metar) and wx.icon != HAZARD_ICONS["rain"]:
+            summary = f"💧{summary}"
+        element.content = f"{summary} · {weather_text(metar)}"
+        element.style(f"color: {severity_colour(wx.score)}")
 
     def update_time(self):
         if not self._time_label:
@@ -459,11 +1006,29 @@ class UI:
         await self._plan.load_plan(value)
         self._spinner.set_visibility(False)
         self.update_weather()
+        self.update_enroute()
 
         if not self._plan.current:
             return
 
-        self._plan_detail.content = f"**DEPRW**: {self._plan.current.DEPRWY} ({self._plan.current.DEPRWY_LENGTH or '-'}ft) **SID**: {self._plan.current.SID} **STAR**: {self._plan.current.STAR} **APP**: {self._plan.current.APP} **DESRW**: {self._plan.current.DESRWY} ({self._plan.current.DESRWY_LENGTH or '-'}ft)"
+        dep, (arr_start, app, arr_end) = plan_detail(self._plan.current)
+        self._plan_dep.set_text(dep)
+        self._plan_arr.set_text(arr_start)
+        self._plan_arr_end.set_text(arr_end)
+        # The approach carries its type, coloured from ILS (green) to manual (red)
+        approach = self._generator.approach_class(
+            self._plan.current.ADES, self._plan.current.APP
+        )
+        self._plan_app.set_text(
+            f"{app} {approach.kind}" if self._plan.current.APP else approach.kind
+        )
+        self._plan_app.style(f"color: {approach_colour(approach.tier)}")
+        self._plan_app_tip.set_text(
+            approach_tip(
+                self._generator.runway_approaches(self._plan.current.ADES),
+                metar_wind(self.metar(self._plan.current.ADES)),
+            )
+        )
 
         self._cruise_alt.value = self._plan.cruise
 
@@ -501,6 +1066,8 @@ class UI:
                         ],
                     )
                 )
+
+        self.fit_route()
 
         route = []
         for waypoint in self._plan.current.waypoints:
@@ -541,6 +1108,28 @@ def window_size(value: str) -> str:
     return f"{width},{height}"
 
 
+# Pending checks, kept so the event loop does not drop them
+_exit_checks = set()
+
+
+async def _exit_if_unused():
+    await asyncio.sleep(EXIT_GRACE_S)
+    if not any(client.has_socket_connection for client in Client.instances.values()):
+        logger.info("Last window closed, shutting down")
+        app.shutdown()
+
+
+def exit_when_unused():
+    """Shut the server down once no window has been connected for a while.
+
+    The check runs as its own task rather than one tied to the client that
+    left, which NiceGUI deletes after its reconnect timeout (3 s).
+    """
+    task = asyncio.get_running_loop().create_task(_exit_if_unused())
+    _exit_checks.add(task)
+    task.add_done_callback(_exit_checks.discard)
+
+
 def main(reload=False, show=True):
     parser = argparse.ArgumentParser(description="X-Plane flight plan UI")
     parser.add_argument(
@@ -575,6 +1164,9 @@ def main(reload=False, show=True):
     app.add_static_files("/assets", os.path.dirname(__file__) + "/../../assets")
     app.on_startup(ui_inst.startup)
     app.on_shutdown(ui_inst.shutdown)
+    # The development server restarts itself, so only exit when run normally
+    if not reload:
+        app.on_disconnect(exit_when_unused)
     try:
         ui.run(ui_inst.page, reload=reload, show=show)
     except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
