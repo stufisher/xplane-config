@@ -24,6 +24,15 @@ EXPEDITE_FPM = 3000
 DESCENT_FT_PER_NM = 318
 # Ground speed assumed when the sim gives none, kt
 DEFAULT_SPEED_KT = 250
+# Level deceleration, nm per kt lost: about 1nm per 10kt
+DECEL_NM_PER_KT = 0.1
+# Speed at the end of the intercept leg, about F speed with CONF 2
+INTERCEPT_END_KT = 180
+# Height above the threshold to be stable at Vapp, ft
+STABLE_FT = 1000
+# Vapp wind correction: a third of the headwind, within these limits, kt
+APPR_COR_MIN = 5
+APPR_COR_MAX = 15
 # Airports listed as nearby, and how far to look, nm
 NEARBY_COUNT = 30
 NEARBY_RADIUS = 400
@@ -87,11 +96,61 @@ class Leg:
     label: str
     heading_mag: float
     distance: float
+    # Speed at the end of the leg, kt
+    speed_kt: float = 0
+    minutes: float = 0
+
+
+@dataclass
+class Speeds:
+    """Approach speeds for the landing weight and runway wind"""
+
+    weight_kg: float
+    conf: str
+    vls: float
+    vapp: float
+    green_dot: float
+    # Headwind on the runway, kt, negative for a tailwind
+    headwind: float
+
+
+def green_dot(weight_kg) -> float:
+    """Rule of thumb green dot below FL200: twice the weight in tonnes + 85"""
+    return 2 * weight_kg / 1000 + 85
+
+
+def headwind(wind, heading_true) -> float:
+    """Headwind component, kt, of a METAR (direction or None, speed) wind"""
+    if not wind or wind[0] is None:
+        return 0.0
+    direction, speed = wind
+    return speed * math.cos(math.radians(direction - heading_true))
+
+
+def speeds(airframe, weight_kg, wind, runway: "RunwayEnd", conf="FULL") -> Speeds:
+    """VLS, Vapp (VLS plus a third of the headwind) and green dot"""
+    vls = airframe.vls(conf, weight_kg)
+    head = headwind(wind, runway.heading_true)
+    correction = min(max(head / 3, APPR_COR_MIN), APPR_COR_MAX)
+    return Speeds(
+        weight_kg=weight_kg,
+        conf=conf,
+        vls=vls,
+        vapp=vls + correction,
+        green_dot=green_dot(weight_kg),
+        headwind=head,
+    )
 
 
 def expedite_ft_per_nm(ground_speed_kt) -> float:
     """Expedited descent gradient at a ground speed"""
     return EXPEDITE_FPM * 60 / (ground_speed_kt or DEFAULT_SPEED_KT)
+
+
+def minutes(distance, start_kt, end_kt) -> float:
+    """Time to fly distance nm while slowing evenly from start_kt to end_kt"""
+    average = max((start_kt + end_kt) / 2, 50)
+    return distance / average * 60
 
 
 @dataclass
@@ -104,9 +163,13 @@ class Vectors:
     eta_min: float | None
     # Aircraft, join point, intercept point and threshold, for the map
     points: list[tuple[float, float]]
-    # When to leave the current altitude to be at intercept_alt_ft by the
-    # join point, e.g. "start descent in 22nm", "descend now", "too high, +15nm"
+    # When to leave the current altitude to be at intercept_alt_ft at the
+    # start of the deceleration, e.g. "start descent in 22nm", "descend now",
+    # "too high, +15nm"
     descent: str = ""
+    speeds: Speeds | None = None
+    # Level deceleration to green dot at the end of the direct leg, nm
+    decel_nm: float = 0
 
 
 def read_ils(earth_nav_path) -> dict:
@@ -159,14 +222,23 @@ def unit(heading):
 
 
 def vectors(
-    lat, lon, altitude_ft, ground_speed_kt, variation, runway: RunwayEnd
+    lat,
+    lon,
+    altitude_ft,
+    ground_speed_kt,
+    variation,
+    runway: RunwayEnd,
+    speeds: Speeds | None = None,
 ) -> Vectors:
     """Direct to a join point, a 30 degree intercept, then the final approach.
 
     variation is magnetic minus true heading at the aircraft, used for legs
     other than the final, whose course comes from the localizer when there is
     one. The intercept leg is flown level at the final's intercept altitude,
-    so the direct leg descends to it from altitude_ft.
+    so the direct leg descends to it from altitude_ft, then levels off to slow
+    to green dot by the join point. The intercept leg slows to about F speed
+    and the final to Vapp by 1000ft. Speeds are taken as ground speeds, with
+    the runway headwind taken off the final.
     """
     threshold = (runway.lat, runway.lon)
     final_true = runway.final_true
@@ -195,7 +267,33 @@ def vectors(
     total = sum(leg.distance for leg in legs)
     moving = ground_speed_kt and ground_speed_kt > 50
     speed = ground_speed_kt if moving else DEFAULT_SPEED_KT
-    eta = total / ground_speed_kt * 60 if moving else None
+
+    decel_nm, eta = 0.0, None
+    if speeds:
+        direct, intercept_leg, final = legs
+        # Indicated speed, from true at about 2% more per 1000ft
+        indicated = speed / (1 + 0.02 * max(altitude_ft, 0) / 1000)
+        gd = min(speeds.green_dot, indicated)
+        f_speed = min(INTERCEPT_END_KT, gd)
+        decel_nm = min((indicated - gd) * DECEL_NM_PER_KT, to_join)
+        direct.speed_kt = gd
+        direct.minutes = minutes(to_join - decel_nm, speed, speed) + minutes(
+            decel_nm, speed, gd
+        )
+        intercept_leg.speed_kt = f_speed
+        intercept_leg.minutes = minutes(INTERCEPT_NM, gd, f_speed)
+        # Slow to Vapp by the stable height, then hold it to the threshold
+        stable_nm = min(STABLE_FT / glide_ft_per_nm, FINAL_NM)
+        head = speeds.headwind
+        final.speed_kt = speeds.vapp
+        final.minutes = minutes(
+            FINAL_NM - stable_nm, f_speed - head, speeds.vapp - head
+        ) + minutes(stable_nm, speeds.vapp - head, speeds.vapp - head)
+        if moving:
+            eta = sum(leg.minutes for leg in legs)
+    elif moving:
+        eta = total / ground_speed_kt * 60
+
     return Vectors(
         legs=legs,
         intercept_alt_ft=intercept_alt,
@@ -203,7 +301,11 @@ def vectors(
         total_nm=total,
         eta_min=eta,
         points=[(lat, lon), join_ll, intercept_ll, threshold],
-        descent=descent_advice(altitude_ft - intercept_alt, to_join, speed),
+        descent=descent_advice(
+            altitude_ft - intercept_alt, to_join - decel_nm, speed
+        ),
+        speeds=speeds,
+        decel_nm=decel_nm,
     )
 
 

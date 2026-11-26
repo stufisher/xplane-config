@@ -61,6 +61,10 @@ class Plan:
             "sim/flightmodel/position/groundspeed,1",
             "sim/flightmodel/position/mag_psi,1",
         ]
+        # Gross weight, kg, for approach speeds
+        self._weight_dref = "sim/flightmodel/weight/m_total,0"
+        # GPWS LDG FLAP 3 switch, non zero when landing in CONF 3
+        self._flap3_dref = "AirbusFBW/GPWSSwitchArray[3],0"
         self._update_time = update_time
         self._update_location = update_location
 
@@ -76,7 +80,10 @@ class Plan:
 
     async def _init(self):
         await self._rest._init()
-        self._rest.set_subscribed_drefs(self._location_drefs + [self._time_dref])
+        self._rest.set_subscribed_drefs(
+            self._location_drefs
+            + [self._time_dref, self._weight_dref, self._flap3_dref]
+        )
         background_tasks.create(self._rest.socket_client())
 
     async def load_plan(self, file_path: str):
@@ -325,6 +332,16 @@ class Plan:
     def time(self):
         seconds = self._rest.get_dref_value("sim/time/zulu_time_sec,0")
         return seconds
+
+    @property
+    def weight_kg(self):
+        """Gross weight, kg, None until the sim sends it"""
+        return self._rest.get_dref_value(self._weight_dref)
+
+    @property
+    def landing_conf(self):
+        """Landing config for VLS: "3" with LDG FLAP 3 on, else FULL"""
+        return "3" if self._rest.get_dref_value(self._flap3_dref) else "FULL"
 
     @property
     def location(self):

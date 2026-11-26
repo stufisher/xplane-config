@@ -16,7 +16,7 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, runway_heading
-from .divert import Divert, vectors
+from .divert import Divert, speeds, vectors
 from .divert_view import DivertDialog, ils_text
 from .enroute import (
     enroute_hazards,
@@ -36,6 +36,7 @@ from .generate_view import (
 from .weather import challenge, metar_wind
 from .grib import WindsAloft, latest_grib
 from .places import download_missing
+from .to.airframe import a20n
 from .to.view import takeoff_svg
 from .xplane import DEFAULT_XPLANE_DIR, XPlanePaths
 
@@ -557,6 +558,10 @@ class UI:
             self._divert_legs.set_text("Waiting for the aircraft position")
             return
         ground_speed = loc.groundspeed * 1.943844 if loc.groundspeed else None
+        # Landing weight taken as the current weight; the MLW until the sim
+        # sends it
+        weight = self._plan.weight_kg or a20n.mlw
+        wind = metar_wind(self.metar(icao))
         v = vectors(
             loc.latitude,
             loc.longitude,
@@ -564,6 +569,7 @@ class UI:
             ground_speed,
             loc.variation,
             runway,
+            speeds(a20n, weight, wind, runway, self._plan.landing_conf),
         )
         ils = ils_text(runway)
         self._divert_title.set_text(
@@ -578,13 +584,20 @@ class UI:
                 arrival = (self._plan.time + v.eta_min * 60) % 86400
                 eta += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
         descent = f" ({v.descent})" if v.descent else ""
+        s = v.speeds
+        decel = ""
+        if v.decel_nm >= 1:
+            decel = f", slow to {direct.speed_kt:.0f}kt in the last {v.decel_nm:.0f}nm"
+        mlw = "" if self._plan.weight_kg else " MLW"
         self._divert_legs.set_text(
             f"HDG {direct.heading_mag:03.0f}° {direct.distance:.0f}nm, down to "
-            f"{v.intercept_alt_ft}ft{descent} → "
+            f"{v.intercept_alt_ft}ft{descent}{decel} → "
             f"HDG {intercept.heading_mag:03.0f}° {intercept.distance:.0f}nm at "
-            f"{v.intercept_alt_ft}ft → "
+            f"{v.intercept_alt_ft}ft, slow to {intercept.speed_kt:.0f}kt → "
             f"FINAL {final.heading_mag:03.0f}° {final.distance:.0f}nm "
-            f"({v.glide_angle:.1f}°) · {v.total_nm:.0f}nm{eta}"
+            f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
+            f"(VLS {s.vls:.0f} CONF {s.conf}, {s.weight_kg / 1000:.1f}t{mlw}) · "
+            f"{v.total_nm:.0f}nm{eta}"
         )
         self._draw_divert(v)
 
