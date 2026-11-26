@@ -16,7 +16,7 @@ from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, runway_heading
-from .divert import Divert, speeds, vectors
+from .divert import Divert, path_text, speeds, vectors
 from .divert_view import DivertDialog, ils_text
 from .enroute import (
     enroute_hazards,
@@ -408,6 +408,10 @@ class UI:
                         ):
                             self._divert_title = ui.label("")
                             self._divert_legs = ui.label("")
+                            # Live height against the glide path, on hover
+                            self._divert_path = ui.tooltip("").style(
+                                "font-size: 0.85rem"
+                            )
                         ui.button(icon="close", on_click=self.clear_divert).props(
                             "flat round dense"
                         ).tooltip("Stop diverting")
@@ -607,6 +611,7 @@ class UI:
             f"{v.total_nm:.0f}nm{eta}"
         )
         self._draw_divert(v)
+        self.update_divert_path()
 
     def _draw_divert(self, v):
         """Dashed route and its turn points on the map, None to remove them"""
@@ -781,6 +786,24 @@ class UI:
         self._aircraft_marker.move(loc.latitude, loc.longitude)
         self._aircraft_marker.run_method("setRotationAngle", loc.psi - 45)
         self._last_location_update_time = now
+        self.update_divert_path()
+
+    def update_divert_path(self):
+        """Tooltip over the divert text with the height against the glide path"""
+        if not self._divert_target:
+            return
+        loc = self._plan.location
+        if loc.latitude is None:
+            return
+        self._divert_path.set_text(
+            path_text(
+                loc.latitude,
+                loc.longitude,
+                (loc.elevation or 0) * 3.28084,
+                loc.groundspeed * 1.943844 if loc.groundspeed else None,
+                self._divert_target[2],
+            )
+        )
 
     def update_weather(self):
         if not self._plan.current:

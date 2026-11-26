@@ -341,6 +341,30 @@ def vectors(
     )
 
 
+def path_text(lat, lon, altitude_ft, ground_speed_kt, runway: RunwayEnd) -> str:
+    """Height against the glide path to the threshold, and the VS to stay on
+    it; distance is direct to the threshold, so only meaningful on final"""
+    angle = runway.ils.glideslope if runway.ils and runway.ils.glideslope else 3.0
+    glide_ft_per_nm = math.tan(math.radians(angle)) * 6076
+    distance = nm((lat, lon), (runway.lat, runway.lon))
+    height = altitude_ft - runway.elevation_ft
+    path = THRESHOLD_HEIGHT + distance * glide_ft_per_nm
+    off = height - path
+    if abs(off) < 100:
+        where = "on path"
+    else:
+        where = f"{abs(off):.0f}ft {'high' if off > 0 else 'low'}"
+    text = (
+        f"{runway.name} {distance:.1f}nm, {height:.0f}ft above, "
+        f"{angle:.1f}° path {path:.0f}ft: {where}"
+    )
+    if ground_speed_kt and ground_speed_kt > 50 and distance > 0.3:
+        vs = max(height - THRESHOLD_HEIGHT, 0) * ground_speed_kt / (60 * distance)
+        on_path = ground_speed_kt * glide_ft_per_nm / 60
+        text += f"; VS to threshold {vs:.0f}fpm, on path {on_path:.0f}fpm"
+    return text
+
+
 def descent_advice(height_to_lose, distance, ground_speed_kt=None) -> str:
     """When to start down to lose height_to_lose ft within distance nm"""
     if height_to_lose <= 100:
