@@ -173,7 +173,8 @@ class Plan:
         await self._rest.press_button("1R")
 
         # Approach
-        des_runway = self._plan.DESRWY.replace("RW", "RWY")
+        # Plans to airports without procedures may have no arrival runway
+        des_runway = self._plan.DESRWY.replace("RW", "RWY") if self._plan.DESRWY else None
         app = self._plan.APP
         if app:
             logger.info(f"MCDU: Setting arrival approach {app}")
