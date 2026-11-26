@@ -437,7 +437,9 @@ class UI:
                             ui.element("div")
                             .classes("flex-1 relative")
                             .style(
-                                "height: 8px; background: #555; border-radius: 4px"
+                                # Room underneath for captions on the markers
+                                "height: 8px; background: #555; border-radius: 4px; "
+                                "margin-bottom: 12px"
                             )
                         )
                         self._progress_arr = ui.label("").classes("text-xs")
@@ -789,25 +791,40 @@ class UI:
         def percent(along):
             return 0 if not total else max(0, min(100, 100 * along / total))
 
-        _, intercept, final = v.legs
-        # Turn points still ahead
+        direct, intercept, final = v.legs
+        # Points still ahead, each captioned with the distance to it
         markers = []
+        slow_in = direct.distance - v.decel_nm
+        if v.phase == "direct" and v.decel_nm >= 1 and slow_in > 0:
+            markers.append(
+                (
+                    percent(flown + slow_in),
+                    "▼",
+                    "white",
+                    f"slow to {direct.speed_kt:.0f}kt from here, "
+                    f"{v.decel_nm:.0f}nm before the join point",
+                    f"SLOW {slow_in:.0f}nm",
+                )
+            )
         if v.phase == "direct":
             markers.append(
                 (
-                    percent(total - intercept.distance - final.distance),
+                    percent(flown + direct.distance),
                     "◆",
                     "orange",
-                    f"intercept, HDG {intercept.heading_mag:03.0f}°",
+                    f"join: turn to HDG {intercept.heading_mag:03.0f}°",
+                    f"JOIN {direct.distance:.0f}nm",
                 )
             )
         if v.phase != "final":
+            to_final = direct.distance + intercept.distance
             markers.append(
                 (
-                    percent(total - final.distance),
+                    percent(flown + to_final),
                     "◆",
                     "orange",
                     f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
+                    f"FINAL {to_final:.0f}nm",
                 )
             )
         self._draw_progress(
@@ -835,13 +852,20 @@ class UI:
                 "position: absolute; left: 0; top: 0; bottom: 0; "
                 f"width: {filled:.1f}%; background: #2196f3; border-radius: 4px"
             )
-            for left, icon, colour, tip in markers:
+            for left, icon, colour, tip, *caption in markers:
                 with ui.label(icon).style(
                     f"position: absolute; left: {left:.1f}%; top: -9px; "
                     f"transform: translateX(-50%); color: {colour}; "
                     "font-size: 13px; line-height: 1; cursor: default"
                 ):
                     ui.tooltip(tip)
+                # Optional caption under the bar, e.g. the distance to the point
+                if caption:
+                    ui.label(caption[0]).style(
+                        f"position: absolute; left: {left:.1f}%; top: 10px; "
+                        f"transform: translateX(-50%); color: {colour}; "
+                        "font-size: 10px; line-height: 1; white-space: nowrap"
+                    )
 
     async def init_mcdu(self, element):
         with disable(element):
