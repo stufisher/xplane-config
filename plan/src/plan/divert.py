@@ -18,10 +18,12 @@ THRESHOLD_HEIGHT = 50
 # A localizer further than this off the runway heading is offset, and the
 # vectors then follow the runway
 ALIGNED_DEGREES = 3
-# Descent possible with speed brakes, ft per nm, to flag airports too close
-EXPEDITE_FT_PER_NM = 500
+# Expedited descent rate with speed brakes, ft/min
+EXPEDITE_FPM = 3000
 # A normal descent, about 3 degrees, ft per nm
 DESCENT_FT_PER_NM = 318
+# Ground speed assumed when the sim gives none, kt
+DEFAULT_SPEED_KT = 250
 # Airports listed as nearby, and how far to look, nm
 NEARBY_COUNT = 30
 NEARBY_RADIUS = 400
@@ -85,6 +87,11 @@ class Leg:
     label: str
     heading_mag: float
     distance: float
+
+
+def expedite_ft_per_nm(ground_speed_kt) -> float:
+    """Expedited descent gradient at a ground speed"""
+    return EXPEDITE_FPM * 60 / (ground_speed_kt or DEFAULT_SPEED_KT)
 
 
 @dataclass
@@ -184,9 +191,11 @@ def vectors(
     angle = runway.ils.glideslope if runway.ils and runway.ils.glideslope else 3.0
     glide_ft_per_nm = math.tan(math.radians(angle)) * 6076
     intercept_alt = runway.elevation_ft + THRESHOLD_HEIGHT + FINAL_NM * glide_ft_per_nm
-    total = sum(leg.distance for leg in legs)
-    eta = total / ground_speed_kt * 60 if ground_speed_kt and ground_speed_kt > 50 else None
     intercept_alt = int(round(intercept_alt, -2))
+    total = sum(leg.distance for leg in legs)
+    moving = ground_speed_kt and ground_speed_kt > 50
+    speed = ground_speed_kt if moving else DEFAULT_SPEED_KT
+    eta = total / ground_speed_kt * 60 if moving else None
     return Vectors(
         legs=legs,
         intercept_alt_ft=intercept_alt,
@@ -194,18 +203,18 @@ def vectors(
         total_nm=total,
         eta_min=eta,
         points=[(lat, lon), join_ll, intercept_ll, threshold],
-        descent=descent_advice(altitude_ft - intercept_alt, to_join),
+        descent=descent_advice(altitude_ft - intercept_alt, to_join, speed),
     )
 
 
-def descent_advice(height_to_lose, distance) -> str:
+def descent_advice(height_to_lose, distance, ground_speed_kt=None) -> str:
     """When to start down to lose height_to_lose ft within distance nm"""
     if height_to_lose <= 100:
         return ""
     normal = height_to_lose / DESCENT_FT_PER_NM
     if normal < distance:
         return f"start descent in {distance - normal:.0f}nm"
-    expedited = height_to_lose / EXPEDITE_FT_PER_NM
+    expedited = height_to_lose / expedite_ft_per_nm(ground_speed_kt)
     if expedited <= distance:
         return "descend now"
     return f"too high, +{expedited - distance:.0f}nm"
@@ -244,7 +253,9 @@ class Divert:
                 self._ils = {}
         return self._ils.get(icao, {})
 
-    def airport(self, icao, lat, lon, altitude_ft) -> Nearby | None:
+    def airport(
+        self, icao, lat, lon, altitude_ft, ground_speed_kt=None
+    ) -> Nearby | None:
         info = self._airports.get(icao) or self._generator.airports.get(icao)
         if info is None:
             return None
@@ -253,8 +264,9 @@ class Divert:
         iata, city = self._generator.board(icao)
         elevation = int(float(info.get("elevation_ft") or 0))
         # Height to lose before the final approach, at an expedited descent
-        intercept = elevation + FINAL_NM * 318
-        needed = max(0, altitude_ft - intercept) / EXPEDITE_FT_PER_NM
+        intercept = elevation + FINAL_NM * DESCENT_FT_PER_NM
+        gradient = expedite_ft_per_nm(ground_speed_kt)
+        needed = max(0, altitude_ft - intercept) / gradient
         available = max(0, distance - FINAL_NM)
         return Nearby(
             icao=icao,
@@ -267,7 +279,9 @@ class Divert:
             too_high_nm=max(0, needed - available),
         )
 
-    def nearby(self, lat, lon, altitude_ft, count=NEARBY_COUNT) -> list[Nearby]:
+    def nearby(
+        self, lat, lon, altitude_ft, ground_speed_kt=None, count=NEARBY_COUNT
+    ) -> list[Nearby]:
         """Closest airports to the aircraft, nearest first"""
         here = (lat, lon)
         close = []
@@ -276,7 +290,10 @@ class Divert:
             if distance <= NEARBY_RADIUS:
                 close.append((distance, icao))
         close.sort()
-        return [self.airport(icao, lat, lon, altitude_ft) for _, icao in close[:count]]
+        return [
+            self.airport(icao, lat, lon, altitude_ft, ground_speed_kt)
+            for _, icao in close[:count]
+        ]
 
     def runways(self, icao) -> list[RunwayEnd]:
         """Every runway end at the airport from the sim's apt.dat"""

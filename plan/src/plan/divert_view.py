@@ -119,10 +119,14 @@ class DivertDialog:
             return None
         return loc.latitude, loc.longitude, (loc.elevation or 0) * M_TO_FT, loc.variation
 
+    def _speed(self):
+        """Ground speed, kt, 0 without one"""
+        loc = self._location()
+        return (loc.groundspeed or 0) * MS_TO_KT if loc else 0
+
     def _eta(self, distance):
         """Minutes to an airport at the current ground speed, "" when slow"""
-        loc = self._location()
-        speed = (loc.groundspeed or 0) * MS_TO_KT if loc else 0
+        speed = self._speed()
         if speed < 50:
             return ""
         return round(distance / speed * 60 + APPROACH_MINUTES)
@@ -155,11 +159,12 @@ class DivertDialog:
             ui.notify("No aircraft position from the sim", type="warning")
             return
         lat, lon, altitude, variation = aircraft
+        speed = self._speed() or None
 
         def rows():
             return [
                 self._row(a, variation)
-                for a in self._divert.nearby(lat, lon, altitude)
+                for a in self._divert.nearby(lat, lon, altitude, speed)
             ]
 
         with busy(self._airports_table, self._refresh):
@@ -172,7 +177,9 @@ class DivertDialog:
             return
         aircraft = self._aircraft()
         lat, lon, altitude, variation = aircraft if aircraft else (0, 0, 0, 0)
-        airport = self._divert.airport(e.value, lat, lon, altitude)
+        airport = self._divert.airport(
+            e.value, lat, lon, altitude, self._speed() or None
+        )
         if airport is None:
             return
         row = await run.io_bound(self._row, airport, variation)
