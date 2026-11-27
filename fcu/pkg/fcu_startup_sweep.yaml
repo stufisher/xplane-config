@@ -50,9 +50,9 @@ interval:
             {id(ecam_fctl_bk_out), 332.5, bk}, {id(ecam_fctl_stat_out), 332.5, 1},
             {id(ecam_fuel_bk_out), 347.5, bk}, {id(ecam_fuel_stat_out), 347.5, 1},
             {id(ecam_toconfig_bk_out), 347.5, bk}, {id(ecam_toconfig_stat_out), 347.5, 1},
-            // Autobrake korries: LO (max), MED, BRK FAN
-            {id(max_a_out), 306, 1}, {id(max_b_out), 306, 1},
-            {id(med_a_out), 326, 1}, {id(med_b_out), 326, 1},
+            // Autobrake korries: LO/MED, MAX, BRK FAN
+            {id(lomed_on_out), 306, 1}, {id(lomed_decel_out), 306, 1},
+            {id(max_a_out), 326, 1}, {id(max_b_out), 326, 1},
             {id(brkfan_on_out), 346, 1}, {id(brkfan_hot_out), 346, 1},
           };
           // Every sim value a lamp follows; re-publishing one re-runs its on_value
@@ -65,7 +65,7 @@ interval:
             id(ecam_eng_lt), id(ecam_apu_lt), id(ecam_bleed_lt), id(ecam_cond_lt),
             id(ecam_press_lt), id(ecam_door_lt), id(ecam_elec_lt), id(ecam_wheel_lt),
             id(ecam_hyd_lt), id(ecam_fctl_lt), id(ecam_fuel_lt), id(ecam_toconfig_lt),
-            id(max_lt_a), id(max_lt_b), id(med_lt_a), id(med_lt_b),
+            id(lomed_lo), id(lomed_med), id(max_lt_a), id(max_lt_b),
             id(brkfan_on_lt), id(brkfan_t0), id(brkfan_t1), id(brkfan_t2), id(brkfan_t3),
           };
           const float x_min = -80, x_max = 347.5;

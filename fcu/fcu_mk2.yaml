@@ -534,9 +534,11 @@ packages:
   gpws: !include { file: pkg/korry_2lamp.yaml, vars: { name: gpws, label: "GPWS PULL", row: "5", col: "1", command: "AirbusFBW/GPWSMute", dref_a: "AirbusFBW/OHPLightsATA34_Raw", idx_a: "22", cond_a: "x != 0", ch_a: "37", dref_b: "AirbusFBW/OHPLightsATA34_Raw", idx_b: "23", cond_b: "x != 0", ch_b: "36" } }
 
   # med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "26", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "27" } }
-  med: !include { file: pkg/korry_2lamp.yaml, vars: { name: med, label: "Auto Brk MED", row: "3", col: "0", command: "AirbusFBW/AbrkMed", dref_a: "AirbusFBW/AutoBrkMed", cond_a: "(int) x >= 1", ch_a: "43", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMed", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "42" } }
+  # Row 3 korry: MAX.
+  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "3", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "43", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "42" } }
   # max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "24", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "25" } }
-  max: !include { file: pkg/korry_2lamp.yaml, vars: { name: max, label: "Auto Brk MAX", row: "4", col: "0", command: "AirbusFBW/AbrkMax", dref_a: "AirbusFBW/AutoBrkMax", cond_a: "(int) x >= 1", ch_a: "45", idx_a: "-1", dref_b: "AirbusFBW/AutoBrkMax", cond_b: "(int) x == 2", idx_b: "-1", ch_b: "44" } }
+  # Row 4 korry: LO/MED - short press = LO, hold 1s = MED (ON lamp flashes), lamps follow AutoBrkLo/Med.
+  lomed: !include { file: pkg/abrk_lomed.yaml, vars: { name: lomed, label: "Auto Brk LO MED", row: "4", col: "0", on_ch: "45", decel_ch: "44" } }
 
   # BRK FAN korry (inverted): ON lamp + SPECIAL HOT lamp (BrakeTemperatureArray[0..3] > 300)
   # brkfan: !include { file: pkg/brkfan_korry.yaml, vars: { name: brkfan, label: "BRK FAN", row: "2", col: "0", command: "toliss_airbus/gear/brake_fan", on_ch: "28", hot_ch: "29" } }

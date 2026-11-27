@@ -1,0 +1,103 @@
+# Reusable: autobrake LO/MED korry on one pushbutton, two lamps (ON + DECEL), no backlight.
+#   short press -> AirbusFBW/AbrkLo
+#   hold >=1s   -> AirbusFBW/AbrkMed, plus a confirmation flash on the ON lamp
+# Lamps mirror whichever of AutoBrkLo / AutoBrkMed is active: ON when >= 1, DECEL when == 2.
+# Block YAML throughout (a flow {} map can't hold a ${name} token). Vars:
+#   name label row col on_ch decel_ch
+binary_sensor:
+  - platform: matrix_keypad
+    keypad_id: btn_matrix
+    id: ${name}_btn
+    name: ${label}
+    row: ${row}
+    col: ${col}
+    on_multi_click:
+      # Longest timing first - on_multi_click takes the first pattern that matches.
+      - timing:
+          - ON for at least 1s
+        then:
+          - xplane_client.send_command:
+              id: xp
+              command: AirbusFBW/AbrkMed
+          - script.execute: flash_${name}
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 50ms
+        then:
+          - xplane_client.send_command:
+              id: xp
+              command: AirbusFBW/AbrkLo
+
+script:
+  # Three quick blinks on the ON lamp to confirm MED, then hand the lamps back to the datarefs.
+  - id: flash_${name}
+    mode: restart
+    then:
+      - repeat:
+          count: 3
+          then:
+            - output.set_level:
+                id: ${name}_on_out
+                level: 100%
+            - delay: 120ms
+            - output.set_level:
+                id: ${name}_on_out
+                level: 0%
+            - delay: 120ms
+      - script.execute: restore_${name}
+
+  # Float compares are false for NaN, so lamps stay off until the datarefs arrive.
+  - id: restore_${name}
+    then:
+      - if:
+          condition:
+            lambda: "return id(${name}_lo).state >= 1 || id(${name}_med).state >= 1;"
+          then:
+            - output.set_level:
+                id: ${name}_on_out
+                level: 100%
+          else:
+            - output.set_level:
+                id: ${name}_on_out
+                level: 0%
+      - if:
+          condition:
+            lambda: "return id(${name}_lo).state == 2 || id(${name}_med).state == 2;"
+          then:
+            - output.set_level:
+                id: ${name}_decel_out
+                level: 100%
+          else:
+            - output.set_level:
+                id: ${name}_decel_out
+                level: 0%
+
+sensor:
+  - platform: xplane_client
+    dataref: AirbusFBW/AutoBrkLo
+    id: ${name}_lo
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: "return !id(flash_${name}).is_running();"
+          then:
+            - script.execute: restore_${name}
+  - platform: xplane_client
+    dataref: AirbusFBW/AutoBrkMed
+    id: ${name}_med
+    internal: true
+    on_value:
+      - if:
+          condition:
+            lambda: "return !id(flash_${name}).is_running();"
+          then:
+            - script.execute: restore_${name}
+
+output:
+  - platform: tlc5947
+    id: ${name}_on_out
+    channel: ${on_ch}
+  - platform: tlc5947
+    id: ${name}_decel_out
+    channel: ${decel_ch}
