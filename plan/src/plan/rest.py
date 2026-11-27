@@ -75,9 +75,9 @@ def get_dref_and_index(dataref: str):
 
 
 class REST:
-    def __init__(self, on_drefs_changed: callable = None):
+    def __init__(self, host: str = "localhost", on_drefs_changed: callable = None):
         self._client = httpx.AsyncClient(verify=False)
-        self._base_url = "http://localhost:8086/api/v3"
+        self._base_url = f"http://{host}:8086/api/v3"
         self._commands = "/commands"
         self._datarefs = "/datarefs"
 

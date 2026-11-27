@@ -125,6 +125,14 @@ class Challenge:
     # The worst hazard as one symbol
     icon: str = "☀"
 
+    @property
+    def summary(self) -> str:
+        """Icon then notes, a thin space apart to keep the pair narrow"""
+        return f"{self.icon}{ICON_GAP}{self.notes}".strip()
+
+
+# Thin space between an icon and its text
+ICON_GAP = "\u2009"
 
 # Hazards from worst to mildest, each with its icon
 HAZARD_ICONS = {

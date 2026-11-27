@@ -13,7 +13,6 @@ from nicegui import Client, ui, app, events, run
 from nicegui.element import Element
 
 from .plan import Plan
-from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, nm, runway_heading
@@ -42,6 +41,7 @@ from .generate_view import (
     approach_colour,
     approach_tip,
     severity_colour,
+    wind_tip,
 )
 from .weather import HAZARD_ICONS, challenge, is_wet, metar_wind
 from .grib import WindsAloft, latest_grib
@@ -120,9 +120,10 @@ def weather_text(metar) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
-    """Departure line, and the arrival line split around the approach so it
-    can be coloured; each in the order it is flown, a transition as NAME.TRANS"""
+def plan_detail(plan) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """Departure line split around the runway name and the arrival line split
+    around the approach, so each can carry a tooltip; each in the order it is
+    flown, a transition as NAME.TRANS"""
 
     def named(name, trans):
         if not name:
@@ -132,13 +133,17 @@ def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
     def runway(name, length):
         return f"{name or '-'} ({length or '-'}ft)"
 
-    dep = f"{runway(plan.DEPRWY, plan.DEPRWY_LENGTH)} · {named(plan.SID, plan.SIDTRANS)}"
+    dep = (
+        "DEP",
+        plan.DEPRWY or "-",
+        f"({plan.DEPRWY_LENGTH or '-'}ft) · {named(plan.SID, plan.SIDTRANS)}",
+    )
     arr = (
         f"ARR {named(plan.STAR, plan.STARTRANS)} ·",
         named(plan.APP, plan.APPTRANS),
         f"· {runway(plan.DESRWY, plan.DESRWY_LENGTH)}",
     )
-    return f"DEP {dep}", arr
+    return dep, arr
 
 
 @contextmanager
@@ -210,10 +215,23 @@ class ToggleButton(ui.button):
 
 
 class UI:
-    def __init__(self, paths: XPlanePaths = XPlanePaths()):
+    def __init__(
+        self,
+        paths: XPlanePaths = XPlanePaths(),
+        host: str = "localhost",
+        rest_drefs: bool = False,
+        is_offline: bool = False,
+    ):
         self._apt = APT(paths)
-        self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
-        self._udp = UDP(self._apt)
+        self._plan = Plan(
+            self._apt,
+            self.update_time,
+            self.update_location,
+            paths,
+            host=host,
+            rest_drefs=rest_drefs,
+            is_offline=is_offline,
+        )
         self._generator = Generator(paths)
         self._divert = Divert(self._generator)
         # Airport label and runway being diverted to, None when not diverting
@@ -258,6 +276,11 @@ class UI:
             .nicegui-markdown p {
                 margin-top: 0;
             }
+            /* Narrower toolbar buttons */
+            .q-btn-group > .q-btn {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
             .leaflet-tooltip.leaflet-tooltip-right {
                 background: none;
                 border: none;
@@ -276,7 +299,7 @@ class UI:
         with Row():
             with Col():
                 with Card():
-                    with Row().classes("flex-nowrap"):
+                    with Row().classes("flex-nowrap items-center").style("flex: none"):
                         self._plan_select = (
                             ui.select(
                                 [],
@@ -305,7 +328,7 @@ class UI:
                                 icon="help_outline", on_click=lambda: self._help_dialog.open()
                             )
                             help_button.tooltip("Flying a 3° approach")
-                    with Row().classes("flex-nowrap"):
+                    with Row().classes("flex-nowrap items-center").style("flex: none"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
                         )
@@ -340,7 +363,9 @@ class UI:
                             )
                             self._anti_ice.tooltip("Anti Ice")
                 with Card(grow=True):
-                    with Row():
+                    # Rows keep their natural height rather than sharing the
+                    # card's stretched height
+                    with Row().style("flex: none"):
                         self._time_label = (
                             ui.label("--:--:--")
                             .style("font-family: DSEG7; font-size: 1.5rem")
@@ -369,20 +394,29 @@ class UI:
                                 on_click=lambda: self.update_location(),
                             )
                             self._map_center.tooltip("Center map on plane location")
-                    with Row():
+                    with Row().classes("items-start").style("flex: none"):
                         # The text wraps beside the buttons rather than pushing
                         # them onto a line of their own
                         with ui.column().classes("flex-1 min-w-0 gap-0").style(
                             "font-size: 0.85rem;"
                         ):
-                            self._plan_dep = ui.label("").classes("w-full")
+                            # Bold marks the labels with a hover tooltip
+                            with ui.row().classes("w-full gap-x-1 gap-y-0"):
+                                self._plan_dep = ui.label("")
+                                self._plan_dep_rwy = ui.label("").classes("font-bold")
+                                with self._plan_dep_rwy:
+                                    # Every runway's wind
+                                    self._plan_dep_tip = ui.tooltip("").style(
+                                        "white-space: pre-line; font-size: 0.85rem"
+                                    )
+                                self._plan_dep_end = ui.label("")
                             with ui.row().classes("w-full gap-x-1 gap-y-0"):
                                 self._plan_arr = ui.label("")
-                                self._plan_app = ui.label("")
+                                self._plan_app = ui.label("").classes("font-bold")
                                 with self._plan_app:
                                     # Every runway's wind and approaches
                                     self._plan_app_tip = ui.tooltip("").style(
-                                        "white-space: pre-line"
+                                        "white-space: pre-line; font-size: 0.85rem"
                                     )
                                 self._plan_arr_end = ui.label("")
                         with ui.button_group().classes("shrink-0"):
@@ -417,17 +451,20 @@ class UI:
                             on_click=lambda: ui.clipboard.write(self._route.value),
                         )
                         copy_route_button.tooltip("Copy route to clipboard")
-                    with Row():
-                        with Col(gap=0):
-                            with Row():
+                    # Top aligned so a wrapping METAR doesn't push the other side down
+                    with Row().classes("items-start"):
+                        with Col(gap=0).classes("justify-start"):
+                            with Row().classes("items-center").style("flex: none"):
                                 ui.icon("flight_takeoff").classes("text-2xl")
                                 self.dep_time = ui.label("--:--")
+                                self.dep_icons = ui.label("").classes("ml-auto")
                             self.dep_weather = ui.markdown("-4c mist 1016mb")
 
-                        with Col(gap=0):
-                            with Row():
+                        with Col(gap=0).classes("justify-start"):
+                            with Row().classes("items-center").style("flex: none"):
                                 ui.icon("flight_land").classes("text-2xl")
                                 self.des_time = ui.label("--:--")
+                                self.des_icons = ui.label("").classes("ml-auto")
                             self.des_weather = ui.markdown("6c hail 999mb")
                     self._enroute_weather = ui.label("").classes("text-sm")
                     with ui.row().classes("w-full items-center no-wrap gap-2"):
@@ -438,9 +475,7 @@ class UI:
                             ui.element("div")
                             .classes("flex-1 relative")
                             .style(
-                                # Room underneath for captions on the markers
-                                "height: 8px; background: #555; border-radius: 4px; "
-                                "margin-bottom: 12px"
+                                "height: 8px; background: #555; border-radius: 4px"
                             )
                         )
                         self._progress_arr = ui.label("").classes("text-xs")
@@ -452,9 +487,11 @@ class UI:
                             "font-size: 0.85rem; color: orange"
                         ):
                             self._divert_title = ui.label("")
+                            # Legs in their own colour, apart from the orange
+                            # title
                             # One bullet per leg still to fly
                             self._divert_legs = ui.label("").style(
-                                "white-space: pre-line"
+                                "white-space: pre-line; color: #ffc107"
                             )
                             # Height against the glide path, shown on final
                             self._divert_path = ui.label("")
@@ -666,7 +703,7 @@ class UI:
         direct, intercept, final = v.legs
         eta = ""
         if v.eta_min:
-            eta = f", ETA {v.eta_min:.0f} min"
+            eta = f"ETA {v.eta_min:.0f} min"
             if self._plan.time is not None:
                 arrival = (self._plan.time + v.eta_min * 60) % 86400
                 eta += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
@@ -674,7 +711,7 @@ class UI:
         s = v.speeds
         decel = ""
         if v.decel_nm >= 1:
-            decel = f", slow to {direct.speed_kt:.0f}kt in the last {v.decel_nm:.0f}nm"
+            decel = f", {direct.speed_kt:.0f}kt in last {v.decel_nm:.0f}nm"
         mlw = "" if self._plan.weight_kg else " MLW"
         # Tracks come from the geometry; the headings for them allow for the
         # wind aloft here, and on final for the airport's wind
@@ -693,15 +730,15 @@ class UI:
         parts = []
         if not direct.done:
             parts.append(
-                f"{trk(direct.heading_mag)} {direct.distance:.0f}nm, down to "
+                f"{trk(direct.heading_mag)} {direct.distance:.0f}nm, to "
                 f"{v.intercept_alt_ft}ft{descent}{decel}"
             )
         if not intercept.done:
             parts.append(
-                f"{trk(intercept.heading_mag)} {intercept.distance:.0f}nm at "
+                f"JOIN {trk(intercept.heading_mag)} {intercept.distance:.0f}nm at "
                 f"{v.intercept_alt_ft}ft"
                 + (descent if direct.done else "")
-                + f", slow to {intercept.speed_kt:.0f}kt"
+                + f",  {intercept.speed_kt:.0f}kt"
             )
         steer = ""
         if v.steer_mag is not None:
@@ -713,19 +750,19 @@ class UI:
         parts.append(
             f"FINAL {trk(final.heading_mag, at_airport=True)} {final.distance:.0f}nm "
             f"({v.glide_angle:.1f}°) VAPP {s.vapp:.0f} "
-            f"(VLS {s.vls:.0f}{'' if s.vls_from_aircraft else ' est'} "
+            f"(VLS {s.vls:.0f}{'' if s.vls_from_aircraft else '*'} "
             f"CONF {'F' if s.conf == 'FULL' else s.conf}, "
             f"{s.weight_kg / 1000:.1f}t{mlw})"
             + steer
         )
         self._divert_title.set_text(
-            f"DIVERT {label} {runway.name} · {runway.length_ft}ft"
+            f"{label} {runway.name} · {runway.length_ft}ft"
             + (f" · {ils}" if ils else "")
-            + f" · {v.total_nm:.0f}nm{eta}"
+            + f" · {v.total_nm:.0f}nm"
         )
         self._divert_legs.set_text("\n".join(f"• {part}" for part in parts))
         self._draw_divert(v)
-        self._show_divert_progress(v)
+        self._show_divert_progress(v, eta)
         self.update_divert_path(log=True)
 
     def _draw_divert(self, v):
@@ -821,7 +858,7 @@ class UI:
             markers,
         )
 
-    def _show_divert_progress(self, v):
+    def _show_divert_progress(self, v, eta):
         """The bar as progress from where the diversion started to the runway,
         with the intercept and final marked"""
         icao, _, runway = self._divert_target
@@ -834,7 +871,7 @@ class UI:
             return 0 if not total else max(0, min(100, 100 * along / total))
 
         direct, intercept, final = v.legs
-        # Points still ahead, each captioned with the distance to it
+        # Points still ahead, each with the distance to it on hover
         markers = []
         slow_in = direct.distance - v.decel_nm
         if v.phase == "direct" and v.decel_nm >= 1 and slow_in > 0:
@@ -843,9 +880,8 @@ class UI:
                     percent(flown + slow_in),
                     "▼",
                     "white",
-                    f"slow to {direct.speed_kt:.0f}kt from here, "
-                    f"{v.decel_nm:.0f}nm before the join point",
-                    f"SLOW {slow_in:.0f}nm",
+                    f"SLOW {slow_in:.0f}nm: slow to {direct.speed_kt:.0f}kt "
+                    f"from here, {v.decel_nm:.0f}nm before the JOIN point",
                 )
             )
         if v.phase == "direct":
@@ -854,8 +890,8 @@ class UI:
                     percent(flown + direct.distance),
                     "◆",
                     "orange",
-                    f"join: turn to TRK {intercept.heading_mag:03.0f}°",
-                    f"JOIN {direct.distance:.0f}nm",
+                    f"JOIN {direct.distance:.0f}nm: turn to "
+                    f"{intercept.heading_mag:03.0f}°",
                 )
             )
         if v.phase != "final":
@@ -865,8 +901,8 @@ class UI:
                     percent(flown + to_final),
                     "◆",
                     "orange",
-                    f"final {final.heading_mag:03.0f}° at {v.intercept_alt_ft}ft",
-                    f"FINAL {to_final:.0f}nm",
+                    f"FINAL {to_final:.0f}nm: {final.heading_mag:03.0f}° at "
+                    f"{v.intercept_alt_ft}ft",
                 )
             )
         self._draw_progress(
@@ -876,11 +912,13 @@ class UI:
             percent(flown),
             f"{flown:.0f} / {total:.0f} nm",
             markers,
+            tip=eta,
         )
 
-    def _draw_progress(self, owner, left, right, filled, text, markers):
-        """Redraw the progress bar when anything on it has changed"""
-        key = (owner, round(filled), tuple(markers))
+    def _draw_progress(self, owner, left, right, filled, text, markers, tip=""):
+        """Redraw the progress bar when anything on it has changed; tip is
+        hover text for the distance, which is bold when it has one"""
+        key = (owner, round(filled), tuple(markers), tip)
         if key == self._progress_key:
             return
         self._progress_key = key
@@ -888,26 +926,26 @@ class UI:
         self._progress_dep.set_text(left)
         self._progress_arr.set_text(right)
         self._progress_text.set_text(text)
+        self._progress_text.clear()
+        if tip:
+            self._progress_text.classes(add="font-bold")
+            with self._progress_text:
+                ui.tooltip(tip).style("font-size: 0.85rem")
+        else:
+            self._progress_text.classes(remove="font-bold")
         self._progress_bar.clear()
         with self._progress_bar:
             ui.element("div").style(
                 "position: absolute; left: 0; top: 0; bottom: 0; "
                 f"width: {filled:.1f}%; background: #2196f3; border-radius: 4px"
             )
-            for left, icon, colour, tip, *caption in markers:
+            for left, icon, colour, tip in markers:
                 with ui.label(icon).style(
                     f"position: absolute; left: {left:.1f}%; top: -9px; "
                     f"transform: translateX(-50%); color: {colour}; "
                     "font-size: 13px; line-height: 1; cursor: default"
                 ):
-                    ui.tooltip(tip)
-                # Optional caption under the bar, e.g. the distance to the point
-                if caption:
-                    ui.label(caption[0]).style(
-                        f"position: absolute; left: {left:.1f}%; top: 10px; "
-                        f"transform: translateX(-50%); color: {colour}; "
-                        "font-size: 10px; line-height: 1; white-space: nowrap"
-                    )
+                    ui.tooltip(tip).style("font-size: 0.85rem")
 
     async def init_mcdu(self, element):
         with disable(element):
@@ -1025,11 +1063,15 @@ class UI:
                 f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
             self._show_weather(
-                self.dep_weather, self._plan.weather_dep, self._plan.current.DEPRWY
+                self.dep_weather,
+                self.dep_icons,
+                self._plan.weather_dep,
+                self._plan.current.DEPRWY,
             )
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
+            self.dep_icons.set_text("")
         if not self._divert_target:
             self._show_arrival_weather(
                 self._plan.current.ADES,
@@ -1040,21 +1082,26 @@ class UI:
     def _show_arrival_weather(self, icao, metar, runway):
         if metar:
             self.des_time.set_text(f"{icao} {metar.time:%H:%M}")
-            self._show_weather(self.des_weather, metar, runway)
+            self._show_weather(self.des_weather, self.des_icons, metar, runway)
         else:
             self.des_time.set_text(f"{icao} --:--")
             self.des_weather.content = "N/A"
+            self.des_icons.set_text("")
             self.des_weather.style("color: inherit")
 
-    def _show_weather(self, element, metar, runway):
-        """METAR text led by the hazard summary, coloured by how hard it is"""
+    def _show_weather(self, element, icons, metar, runway):
+        """METAR text led by the hazard notes, coloured by how hard it is; the
+        hazard icons sit on the airport/time line"""
         wx = challenge(metar, [runway_heading(runway)] if runway else [])
-        summary = f"{wx.icon} {wx.notes}".strip()
+        icon = wx.icon
         # Wet runway, unless the rain icon already shows it
         if is_wet(metar) and wx.icon != HAZARD_ICONS["rain"]:
-            summary = f"💧{summary}"
-        element.content = f"{summary} · {weather_text(metar)}"
-        element.style(f"color: {severity_colour(wx.score)}")
+            icon = f"💧{icon}"
+        colour = f"color: {severity_colour(wx.score)}"
+        icons.set_text(icon)
+        icons.style(colour)
+        element.content = " · ".join(filter(None, [wx.notes, weather_text(metar)]))
+        element.style(colour)
 
     def update_time(self):
         if not self._time_label:
@@ -1077,8 +1124,18 @@ class UI:
         if not self._plan.current:
             return
 
-        dep, (arr_start, app, arr_end) = plan_detail(self._plan.current)
-        self._plan_dep.set_text(dep)
+        (dep_start, dep_rwy, dep_end), (arr_start, app, arr_end) = plan_detail(
+            self._plan.current
+        )
+        self._plan_dep.set_text(dep_start)
+        self._plan_dep_rwy.set_text(dep_rwy)
+        self._plan_dep_end.set_text(dep_end)
+        self._plan_dep_tip.set_text(
+            wind_tip(
+                self._generator.runway_approaches(self._plan.current.ADEP),
+                metar_wind(self.metar(self._plan.current.ADEP)),
+            )
+        )
         self._plan_arr.set_text(arr_start)
         self._plan_arr_end.set_text(arr_end)
         # The approach carries its type, coloured from ILS (green) to manual (red)
@@ -1144,12 +1201,12 @@ class UI:
         runway = self._plan.current.DEPRWY
         icao_code = self._plan.current.ADEP
         if runway and icao_code:
-            await self._udp.move_aircraft_to_runway(icao_code, runway)
+            await self._plan.udp.move_aircraft_to_runway(icao_code, runway)
 
     async def move_aircraft_to_gate(self):
         icao_code = self._plan.current.ADEP
         if icao_code:
-            await self._udp.move_aircraft_to_gate(icao_code)
+            await self._plan.udp.move_aircraft_to_gate(icao_code)
 
     async def restore_popups(self):
         await self._plan._rest.execute_command("toliss_airbus/reinstatePopups")
@@ -1179,8 +1236,8 @@ def track_text(track_mag, wind, variation, airspeed_kt):
     """e.g. "TRK 136° (H 129°)": the track to fly in TRK mode, and the
     heading for it in HDG mode"""
     heading = wind_heading(track_mag, wind, variation, airspeed_kt)
-    hdg = f" (H {heading:03.0f}°)" if heading is not None else ""
-    return f"TRK {track_mag:03.0f}°{hdg}"
+    hdg = f" (H{heading:03.0f}°)" if heading is not None else ""
+    return f"{track_mag:03.0f}°{hdg}"
 
 
 def window_size(value: str) -> str:
@@ -1227,9 +1284,29 @@ def main(reload=False, show=True):
         default=DEFAULT_WINDOW_SIZE,
         help=f"Size of the app window as WIDTHxHEIGHT (default: {DEFAULT_WINDOW_SIZE})",
     )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host running X-Plane (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--rest",
+        action="store_true",
+        help="Subscribe to datarefs over the REST websocket instead of UDP",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Running offline, mock location, alt, and speed",
+    )
     args = parser.parse_args()
     download_missing()
-    ui_inst = UI(XPlanePaths(os.path.expanduser(args.xplane_dir)))
+    ui_inst = UI(
+        XPlanePaths(os.path.expanduser(args.xplane_dir)),
+        host=args.host,
+        rest_drefs=args.rest,
+        is_offline=args.offline
+    )
     cmd = [
         "open",
         "-na",

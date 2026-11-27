@@ -195,7 +195,6 @@ def enroute_text(wind: EnrouteWind | None, hazard: EnrouteHazard | None) -> str:
         )
     if hazard:
         parts.append(
-            f"{hazard.challenge.icon} {hazard.challenge.notes} {hazard.station} "
-            f"at {hazard.along:.0f}nm"
+            f"{hazard.challenge.summary} {hazard.station} at {hazard.along:.0f}nm"
         )
     return " · ".join(parts)

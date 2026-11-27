@@ -21,7 +21,7 @@ def hours_minutes(minutes: float) -> str:
 
 
 def weather_text(wx) -> str:
-    return f"{wx.icon} {wx.notes}".strip()
+    return wx.summary
 
 
 def severity_colour(score: int) -> str:
@@ -76,6 +76,14 @@ def approach_tip(runway_approaches, wind=None) -> str:
             f"{label}: " + ", ".join(approach_text(name, cls) for name, cls in approaches)
         )
     return "\n".join(lines)
+
+
+def wind_tip(runways, wind=None) -> str:
+    """One line per runway with its wind, e.g. "RW26 · head 15kt, cross 3kt" """
+    return "\n".join(
+        f"{runway} · {on_runway}" if (on_runway := runway_wind(runway, wind)) else runway
+        for runway in runways
+    )
 
 
 def with_approach(score, approach_score):

@@ -28,7 +28,7 @@ def ils_text(runway: RunwayEnd) -> str:
         return ""
     glide = f" GS {ils.glideslope:.1f}" if ils.glideslope else ""
     kind = "ILS" if ils.glideslope else "LOC"
-    return f"{kind} {ils.ident} {ils.frequency:.2f} CRS {ils.course_mag:03.0f}{glide}"
+    return f"{kind} {ils.ident} {ils.frequency:.2f} {glide}"
 
 
 class DivertDialog:
@@ -155,7 +155,7 @@ class DivertDialog:
             "brg": f"{(airport.bearing_true + variation) % 360:03.0f}",
             "eta": self._eta(airport.distance),
             "rwy": self._generator.longest_runway_ft(airport.icao) or "",
-            "wx": f"{wx.icon} {wx.notes}".strip(),
+            "wx": wx.summary,
             "wx_colour": severity_colour(wx.score),
             "reach": reach,
             "reach_colour": reach_colour,

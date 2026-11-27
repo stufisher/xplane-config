@@ -504,17 +504,18 @@ class GlideCheck:
     @property
     def where(self):
         if abs(self.off) < ON_PATH_FT:
-            return "on path"
+            return "✔"
         return f"{abs(self.off):.0f}ft {'high' if self.off > 0 else 'low'}"
 
     @property
     def text(self):
-        text = (
-            f"{self.distance:.1f}nm, {self.height:.0f}ft above, "
-            f"{self.angle:.1f}° path {self.path:.0f}ft: {self.where}"
-        )
+        """e.g. "6.0nm 1961ft ✔ · VS 742fpm (path 743)": height above the
+        runway and how far off the path, then the VS to the threshold and the
+        VS that holds the path; the angle only when it isn't 3°"""
+        angle = f" {self.angle:.1f}°" if round(self.angle, 1) != 3.0 else ""
+        text = f"{self.distance:.1f}nm {self.height:.0f}ft{angle} {self.where}"
         if self.vs_needed is not None:
-            text += f"; VS {self.vs_needed:.0f}fpm, on path {self.vs_on_path:.0f}fpm"
+            text += f" · VS {self.vs_needed:.0f}fpm (path {self.vs_on_path:.0f})"
         return text
 
 
