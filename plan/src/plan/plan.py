@@ -7,9 +7,10 @@ from nicegui import background_tasks, run as ng_run
 from .apt import APT
 from .fms import FMS
 from .rest import REST
+from .udp import UDP
 from .weather import Weather
 from .xplane import XPlanePaths
-from .to.to import FlexVSpeeds, TOCalculator
+from .to.to import CG_DREF, WEIGHT_DREF, FlexVSpeeds, TOCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +54,20 @@ class Plan:
         update_time: callable = None,
         update_location: callable = None,
         paths: XPlanePaths = XPlanePaths(),
+        host: str = "localhost",
+        rest_drefs: bool = False,
+        is_offline: bool = False,
     ):
+        self._is_offline = is_offline
         self._fms = FMS(apt, paths)
-        self._rest = REST(on_drefs_changed=self.on_drefs_changed)
+        # MCDU input and display always go through REST
+        self._rest = REST(host, on_drefs_changed=self.on_drefs_changed)
+        self.udp = UDP(apt, host, on_drefs_changed=self.on_drefs_changed)
+        # Subscribed datarefs come over UDP, or the REST websocket
+        self._drefs = self._rest if rest_drefs else self.udp
         self._weather = Weather(paths.real_weather)
         self._plan = None
-        self._to = TOCalculator(self._rest, apt, self._weather)
+        self._to = TOCalculator(self._drefs, apt, self._weather)
         # Latest takeoff calculation, None until PERF has been calculated
         self.takeoff: FlexVSpeeds | None = None
 
@@ -76,7 +85,7 @@ class Plan:
             "sim/flightmodel/failures/onground_any,0",
         ]
         # Gross weight, kg, for approach speeds
-        self._weight_dref = "sim/flightmodel/weight/m_total,0"
+        self._weight_dref = WEIGHT_DREF
         # GPWS LDG FLAP 3 switch, non zero when landing in CONF 3
         self._flap3_dref = "AirbusFBW/GPWSSwitchArray[3],0"
         # The aircraft's own VLS for its current config, green dot, and the
@@ -99,7 +108,7 @@ class Plan:
 
     async def _init(self):
         await self._rest._init()
-        self._rest.set_subscribed_drefs(
+        self._drefs.set_subscribed_drefs(
             self._location_drefs
             + [
                 self._time_dref,
@@ -108,9 +117,10 @@ class Plan:
                 self._vls_dref,
                 self._green_dot_dref,
                 self._flap_lever_dref,
+                CG_DREF,
             ]
         )
-        background_tasks.create(self._rest.socket_client())
+        background_tasks.create(self._drefs.socket_client())
 
     async def load_plan(self, file_path: str):
         self._plan = await self._fms.get_plan(file_path)
@@ -356,26 +366,26 @@ class Plan:
 
     @property
     def time(self):
-        seconds = self._rest.get_dref_value("sim/time/zulu_time_sec,0")
+        seconds = self._drefs.get_dref_value("sim/time/zulu_time_sec,0")
         return seconds
 
     @property
     def weight_kg(self):
         """Gross weight, kg, None until the sim sends it"""
-        return self._rest.get_dref_value(self._weight_dref)
+        return self._drefs.get_dref_value(self._weight_dref)
 
     @property
     def landing_conf(self):
         """Landing config for VLS: "3" with LDG FLAP 3 on, else FULL"""
-        return "3" if self._rest.get_dref_value(self._flap3_dref) else "FULL"
+        return "3" if self._drefs.get_dref_value(self._flap3_dref) else "FULL"
 
     @property
     def landing_vls(self):
         """The aircraft's VLS once the flap lever is in the landing config,
         None before then or until the sim sends it"""
-        lever = self._rest.get_dref_value(self._flap_lever_dref)
+        lever = self._drefs.get_dref_value(self._flap_lever_dref)
         landing_lever = 3 if self.landing_conf == "3" else 4
-        vls = self._rest.get_dref_value(self._vls_dref)
+        vls = self._drefs.get_dref_value(self._vls_dref)
         if lever is None or int(lever) != landing_lever or not vls:
             return None
         return vls
@@ -383,20 +393,25 @@ class Plan:
     @property
     def green_dot(self):
         """The aircraft's green dot speed, None until the sim sends it"""
-        return self._rest.get_dref_value(self._green_dot_dref) or None
+        return self._drefs.get_dref_value(self._green_dot_dref) or None
 
     @property
     def location(self):
-        latitude = self._rest.get_dref_value("sim/flightmodel/position/latitude,3")
-        longitude = self._rest.get_dref_value("sim/flightmodel/position/longitude,3")
-        elevation = self._rest.get_dref_value("sim/flightmodel/position/elevation,1")
+        if self._is_offline:
+            return Location(
+                latitude=46.2381, longitude=6.10895, elevation=15000, theta=0, phi=0, psi=0, groundspeed=240, indicated_ft=15000
+            )
 
-        theta = self._rest.get_dref_value("sim/flightmodel/position/theta,1")
-        phi = self._rest.get_dref_value("sim/flightmodel/position/phi,1")
-        psi = self._rest.get_dref_value("sim/flightmodel/position/psi,1")
-        groundspeed = self._rest.get_dref_value("sim/flightmodel/position/groundspeed,1")
-        mag_psi = self._rest.get_dref_value("sim/flightmodel/position/mag_psi,1")
-        indicated = self._rest.get_dref_value(
+        latitude = self._drefs.get_dref_value("sim/flightmodel/position/latitude,3")
+        longitude = self._drefs.get_dref_value("sim/flightmodel/position/longitude,3")
+        elevation = self._drefs.get_dref_value("sim/flightmodel/position/elevation,1")
+
+        theta = self._drefs.get_dref_value("sim/flightmodel/position/theta,1")
+        phi = self._drefs.get_dref_value("sim/flightmodel/position/phi,1")
+        psi = self._drefs.get_dref_value("sim/flightmodel/position/psi,1")
+        groundspeed = self._drefs.get_dref_value("sim/flightmodel/position/groundspeed,1")
+        mag_psi = self._drefs.get_dref_value("sim/flightmodel/position/mag_psi,1")
+        indicated = self._drefs.get_dref_value(
             "sim/cockpit2/gauges/indicators/altitude_ft_pilot,0"
         )
 
@@ -411,10 +426,11 @@ class Plan:
             mag_psi=mag_psi,
             indicated_ft=indicated,
             on_ground=bool(
-                self._rest.get_dref_value("sim/flightmodel/failures/onground_any,0")
+                self._drefs.get_dref_value("sim/flightmodel/failures/onground_any,0")
             ),
         )
 
     async def shutdown(self):
         logger.info("Plan: Shutdown")
         await self._rest.shutdown()
+        await self.udp.shutdown()

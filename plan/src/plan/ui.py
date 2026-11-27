@@ -13,7 +13,6 @@ from nicegui import Client, ui, app, events, run
 from nicegui.element import Element
 
 from .plan import Plan
-from .udp import UDP
 from .apt import APT
 from .fms import latlon_to_fms
 from .generate import Generator, nm, runway_heading
@@ -210,10 +209,23 @@ class ToggleButton(ui.button):
 
 
 class UI:
-    def __init__(self, paths: XPlanePaths = XPlanePaths()):
+    def __init__(
+        self,
+        paths: XPlanePaths = XPlanePaths(),
+        host: str = "localhost",
+        rest_drefs: bool = False,
+        is_offline: bool = False,
+    ):
         self._apt = APT(paths)
-        self._plan = Plan(self._apt, self.update_time, self.update_location, paths)
-        self._udp = UDP(self._apt)
+        self._plan = Plan(
+            self._apt,
+            self.update_time,
+            self.update_location,
+            paths,
+            host=host,
+            rest_drefs=rest_drefs,
+            is_offline=is_offline,
+        )
         self._generator = Generator(paths)
         self._divert = Divert(self._generator)
         # Airport label and runway being diverted to, None when not diverting
@@ -1144,12 +1156,12 @@ class UI:
         runway = self._plan.current.DEPRWY
         icao_code = self._plan.current.ADEP
         if runway and icao_code:
-            await self._udp.move_aircraft_to_runway(icao_code, runway)
+            await self._plan.udp.move_aircraft_to_runway(icao_code, runway)
 
     async def move_aircraft_to_gate(self):
         icao_code = self._plan.current.ADEP
         if icao_code:
-            await self._udp.move_aircraft_to_gate(icao_code)
+            await self._plan.udp.move_aircraft_to_gate(icao_code)
 
     async def restore_popups(self):
         await self._plan._rest.execute_command("toliss_airbus/reinstatePopups")
@@ -1227,9 +1239,29 @@ def main(reload=False, show=True):
         default=DEFAULT_WINDOW_SIZE,
         help=f"Size of the app window as WIDTHxHEIGHT (default: {DEFAULT_WINDOW_SIZE})",
     )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host running X-Plane (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--rest",
+        action="store_true",
+        help="Subscribe to datarefs over the REST websocket instead of UDP",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Running offline, mock location, alt, and speed",
+    )
     args = parser.parse_args()
     download_missing()
-    ui_inst = UI(XPlanePaths(os.path.expanduser(args.xplane_dir)))
+    ui_inst = UI(
+        XPlanePaths(os.path.expanduser(args.xplane_dir)),
+        host=args.host,
+        rest_drefs=args.rest,
+        is_offline=args.offline
+    )
     cmd = [
         "open",
         "-na",

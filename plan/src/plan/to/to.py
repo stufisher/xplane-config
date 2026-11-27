@@ -8,12 +8,17 @@ import logging
 from nicegui import run as ng_run
 
 from ..rest import REST
+from ..udp import UDP
 from ..apt import APT
 from ..weather import Weather
 from .flex import FlexMath, calculate_trim, TakeoffInstance, VSpeeds
 from .airframe import a20n
 
 logger = logging.getLogger(__name__)
+
+# Subscribed by Plan, read here from the subscription cache
+WEIGHT_DREF = "sim/flightmodel/weight/m_total,0"
+CG_DREF = "sim/flightmodel2/misc/cg_offset_z_mac,2"
 
 
 @dataclass
@@ -33,24 +38,16 @@ class FlexVSpeeds(VSpeeds):
 
 
 class TOCalculator:
-    def __init__(self, rest: REST, apt: APT, weather: Weather):
-        self._rest = rest
+    def __init__(self, drefs: REST | UDP, apt: APT, weather: Weather):
+        self._drefs = drefs
         self._apt = apt
         self._weather = weather
 
     async def get_weight_cg(self):
-        # value = await rest.get_dataref("sim/flightmodel2/misc/cg_offset_z")
-        weight = await self._rest.get_dataref("sim/flightmodel/weight/m_total")
-        cg_percent = await self._rest.get_dataref(
-            "sim/flightmodel2/misc/cg_offset_z_mac"
-        )
-        return weight, cg_percent
+        return self._drefs.get_dref_value([WEIGHT_DREF, CG_DREF])
 
     async def calc_trim(self):
-        cg_percent = await self._rest.get_dataref(
-            "sim/flightmodel2/misc/cg_offset_z_mac"
-        )
-        return calculate_trim(cg_percent)
+        return calculate_trim(self._drefs.get_dref_value(CG_DREF))
 
     async def calc_vspeeds_flex(
         self,
@@ -61,7 +58,7 @@ class TOCalculator:
         packs: bool = True,
         anti_ice: bool = False,
     ):
-        weight = await self._rest.get_dataref("sim/flightmodel/weight/m_total")
+        weight = self._drefs.get_dref_value(WEIGHT_DREF)
         current_weather = self._weather.get_forecast(icao_code)
         runway = await self._apt.get_runway_heading_and_length(icao_code, runway_name)
 
@@ -157,13 +154,16 @@ class TOCalculator:
 
 
 if __name__ == "__main__":
-    rest = REST()
     weather = Weather()
     apt = APT()
-    to = TOCalculator(rest, apt, weather)
+    udp = UDP(apt)
+    udp.set_subscribed_drefs([WEIGHT_DREF, CG_DREF])
+    to = TOCalculator(udp, apt, weather)
     loop = asyncio.new_event_loop()
 
     async def moo():
+        loop.create_task(udp.socket_client())
+        await asyncio.sleep(1)
         values = await to.get_weight_cg()
         print(values)
         trim = await to.calc_trim()
