@@ -78,6 +78,14 @@ def approach_tip(runway_approaches, wind=None) -> str:
     return "\n".join(lines)
 
 
+def wind_tip(runways, wind=None) -> str:
+    """One line per runway with its wind, e.g. "RW26 · head 15kt, cross 3kt" """
+    return "\n".join(
+        f"{runway} · {on_runway}" if (on_runway := runway_wind(runway, wind)) else runway
+        for runway in runways
+    )
+
+
 def with_approach(score, approach_score):
     """Add the approach to a score; unknown (-1) stays so only with an ILS CAT II/III"""
     if score < 0:

@@ -41,6 +41,7 @@ from .generate_view import (
     approach_colour,
     approach_tip,
     severity_colour,
+    wind_tip,
 )
 from .weather import HAZARD_ICONS, challenge, is_wet, metar_wind
 from .grib import WindsAloft, latest_grib
@@ -119,9 +120,10 @@ def weather_text(metar) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
-    """Departure line, and the arrival line split around the approach so it
-    can be coloured; each in the order it is flown, a transition as NAME.TRANS"""
+def plan_detail(plan) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """Departure line split around the runway name and the arrival line split
+    around the approach, so each can carry a tooltip; each in the order it is
+    flown, a transition as NAME.TRANS"""
 
     def named(name, trans):
         if not name:
@@ -131,13 +133,17 @@ def plan_detail(plan) -> tuple[str, tuple[str, str, str]]:
     def runway(name, length):
         return f"{name or '-'} ({length or '-'}ft)"
 
-    dep = f"{runway(plan.DEPRWY, plan.DEPRWY_LENGTH)} · {named(plan.SID, plan.SIDTRANS)}"
+    dep = (
+        "DEP",
+        plan.DEPRWY or "-",
+        f"({plan.DEPRWY_LENGTH or '-'}ft) · {named(plan.SID, plan.SIDTRANS)}",
+    )
     arr = (
         f"ARR {named(plan.STAR, plan.STARTRANS)} ·",
         named(plan.APP, plan.APPTRANS),
         f"· {runway(plan.DESRWY, plan.DESRWY_LENGTH)}",
     )
-    return f"DEP {dep}", arr
+    return dep, arr
 
 
 @contextmanager
@@ -270,6 +276,11 @@ class UI:
             .nicegui-markdown p {
                 margin-top: 0;
             }
+            /* Narrower toolbar buttons */
+            .q-btn-group > .q-btn {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
             .leaflet-tooltip.leaflet-tooltip-right {
                 background: none;
                 border: none;
@@ -288,7 +299,7 @@ class UI:
         with Row():
             with Col():
                 with Card():
-                    with Row().classes("flex-nowrap"):
+                    with Row().classes("flex-nowrap items-center").style("flex: none"):
                         self._plan_select = (
                             ui.select(
                                 [],
@@ -317,7 +328,7 @@ class UI:
                                 icon="help_outline", on_click=lambda: self._help_dialog.open()
                             )
                             help_button.tooltip("Flying a 3° approach")
-                    with Row().classes("flex-nowrap"):
+                    with Row().classes("flex-nowrap items-center").style("flex: none"):
                         self._flight_no = ui.input(
                             "Flight No.", value="A123", placeholder="Flight No."
                         )
@@ -352,7 +363,9 @@ class UI:
                             )
                             self._anti_ice.tooltip("Anti Ice")
                 with Card(grow=True):
-                    with Row():
+                    # Rows keep their natural height rather than sharing the
+                    # card's stretched height
+                    with Row().style("flex: none"):
                         self._time_label = (
                             ui.label("--:--:--")
                             .style("font-family: DSEG7; font-size: 1.5rem")
@@ -381,20 +394,29 @@ class UI:
                                 on_click=lambda: self.update_location(),
                             )
                             self._map_center.tooltip("Center map on plane location")
-                    with Row():
+                    with Row().classes("items-start").style("flex: none"):
                         # The text wraps beside the buttons rather than pushing
                         # them onto a line of their own
                         with ui.column().classes("flex-1 min-w-0 gap-0").style(
                             "font-size: 0.85rem;"
                         ):
-                            self._plan_dep = ui.label("").classes("w-full")
+                            # Bold marks the labels with a hover tooltip
+                            with ui.row().classes("w-full gap-x-1 gap-y-0"):
+                                self._plan_dep = ui.label("")
+                                self._plan_dep_rwy = ui.label("").classes("font-bold")
+                                with self._plan_dep_rwy:
+                                    # Every runway's wind
+                                    self._plan_dep_tip = ui.tooltip("").style(
+                                        "white-space: pre-line; font-size: 0.85rem"
+                                    )
+                                self._plan_dep_end = ui.label("")
                             with ui.row().classes("w-full gap-x-1 gap-y-0"):
                                 self._plan_arr = ui.label("")
-                                self._plan_app = ui.label("")
+                                self._plan_app = ui.label("").classes("font-bold")
                                 with self._plan_app:
                                     # Every runway's wind and approaches
                                     self._plan_app_tip = ui.tooltip("").style(
-                                        "white-space: pre-line"
+                                        "white-space: pre-line; font-size: 0.85rem"
                                     )
                                 self._plan_arr_end = ui.label("")
                         with ui.button_group().classes("shrink-0"):
@@ -1101,8 +1123,18 @@ class UI:
         if not self._plan.current:
             return
 
-        dep, (arr_start, app, arr_end) = plan_detail(self._plan.current)
-        self._plan_dep.set_text(dep)
+        (dep_start, dep_rwy, dep_end), (arr_start, app, arr_end) = plan_detail(
+            self._plan.current
+        )
+        self._plan_dep.set_text(dep_start)
+        self._plan_dep_rwy.set_text(dep_rwy)
+        self._plan_dep_end.set_text(dep_end)
+        self._plan_dep_tip.set_text(
+            wind_tip(
+                self._generator.runway_approaches(self._plan.current.ADEP),
+                metar_wind(self.metar(self._plan.current.ADEP)),
+            )
+        )
         self._plan_arr.set_text(arr_start)
         self._plan_arr_end.set_text(arr_end)
         # The approach carries its type, coloured from ILS (green) to manual (red)
