@@ -28,7 +28,7 @@ def ils_text(runway: RunwayEnd) -> str:
         return ""
     glide = f" GS {ils.glideslope:.1f}" if ils.glideslope else ""
     kind = "ILS" if ils.glideslope else "LOC"
-    return f"{kind} {ils.ident} {ils.frequency:.2f} CRS {ils.course_mag:03.0f}{glide}"
+    return f"{kind} {ils.ident} {ils.frequency:.2f} {glide}"
 
 
 class DivertDialog:
