@@ -21,7 +21,7 @@ def hours_minutes(minutes: float) -> str:
 
 
 def weather_text(wx) -> str:
-    return f"{wx.icon} {wx.notes}".strip()
+    return wx.summary
 
 
 def severity_colour(score: int) -> str:

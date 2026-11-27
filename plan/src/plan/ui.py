@@ -429,17 +429,20 @@ class UI:
                             on_click=lambda: ui.clipboard.write(self._route.value),
                         )
                         copy_route_button.tooltip("Copy route to clipboard")
-                    with Row():
-                        with Col(gap=0):
-                            with Row():
+                    # Top aligned so a wrapping METAR doesn't push the other side down
+                    with Row().classes("items-start"):
+                        with Col(gap=0).classes("justify-start"):
+                            with Row().classes("items-center").style("flex: none"):
                                 ui.icon("flight_takeoff").classes("text-2xl")
                                 self.dep_time = ui.label("--:--")
+                                self.dep_icons = ui.label("").classes("ml-auto")
                             self.dep_weather = ui.markdown("-4c mist 1016mb")
 
-                        with Col(gap=0):
-                            with Row():
+                        with Col(gap=0).classes("justify-start"):
+                            with Row().classes("items-center").style("flex: none"):
                                 ui.icon("flight_land").classes("text-2xl")
                                 self.des_time = ui.label("--:--")
+                                self.des_icons = ui.label("").classes("ml-auto")
                             self.des_weather = ui.markdown("6c hail 999mb")
                     self._enroute_weather = ui.label("").classes("text-sm")
                     with ui.row().classes("w-full items-center no-wrap gap-2"):
@@ -1037,11 +1040,15 @@ class UI:
                 f"{self._plan.current.ADEP} {self._plan.weather_dep.time:%H:%M}"
             )
             self._show_weather(
-                self.dep_weather, self._plan.weather_dep, self._plan.current.DEPRWY
+                self.dep_weather,
+                self.dep_icons,
+                self._plan.weather_dep,
+                self._plan.current.DEPRWY,
             )
         else:
             self.dep_time.set_text(f"{self._plan.current.ADEP} --:--")
             self.dep_weather.content = "N/A"
+            self.dep_icons.set_text("")
         if not self._divert_target:
             self._show_arrival_weather(
                 self._plan.current.ADES,
@@ -1052,21 +1059,26 @@ class UI:
     def _show_arrival_weather(self, icao, metar, runway):
         if metar:
             self.des_time.set_text(f"{icao} {metar.time:%H:%M}")
-            self._show_weather(self.des_weather, metar, runway)
+            self._show_weather(self.des_weather, self.des_icons, metar, runway)
         else:
             self.des_time.set_text(f"{icao} --:--")
             self.des_weather.content = "N/A"
+            self.des_icons.set_text("")
             self.des_weather.style("color: inherit")
 
-    def _show_weather(self, element, metar, runway):
-        """METAR text led by the hazard summary, coloured by how hard it is"""
+    def _show_weather(self, element, icons, metar, runway):
+        """METAR text led by the hazard notes, coloured by how hard it is; the
+        hazard icons sit on the airport/time line"""
         wx = challenge(metar, [runway_heading(runway)] if runway else [])
-        summary = f"{wx.icon} {wx.notes}".strip()
+        icon = wx.icon
         # Wet runway, unless the rain icon already shows it
         if is_wet(metar) and wx.icon != HAZARD_ICONS["rain"]:
-            summary = f"💧{summary}"
-        element.content = f"{summary} · {weather_text(metar)}"
-        element.style(f"color: {severity_colour(wx.score)}")
+            icon = f"💧{icon}"
+        colour = f"color: {severity_colour(wx.score)}"
+        icons.set_text(icon)
+        icons.style(colour)
+        element.content = " · ".join(filter(None, [wx.notes, weather_text(metar)]))
+        element.style(colour)
 
     def update_time(self):
         if not self._time_label:
