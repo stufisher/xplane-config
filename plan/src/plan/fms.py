@@ -1,4 +1,5 @@
 from dataclasses import dataclass, fields
+import io
 import logging
 import mmap
 import os
@@ -492,40 +493,44 @@ class FMS:
 
     def _parse_plan(self, file_path: str):
         with open(file_path) as file:
-            fms = {"waypoints": [], "file_path": file_path}
-            in_waypoints = False
-            for _ in range(2):
-                next(file)
-            for line in file:
-                line = line.strip()
-                if in_waypoints:
-                    wpt = line.split(" ")
-                    fms["waypoints"].append(
-                        Waypoint(
-                            type_id=int(wpt[0]),
-                            name=wpt[1],
-                            type=wpt[2],
-                            altitude=float(wpt[3]),
-                            latitude=float(wpt[4]),
-                            longitude=float(wpt[5]),
-                        )
-                    )
-                else:
-                    key, value = line.split(" ")
-                    if key in PLAN_KEYS:
-                        fms[key] = value
-                    else:
-                        logger.warning(f"Ignoring {key} in {file_path}")
-                    if key == "NUMENR":
-                        in_waypoints = True
+            return self._parse_lines(file, file_path)
 
-            departure = get_airport_by_icao(fms["ADEP"])[0]
-            destination = get_airport_by_icao(fms["ADES"])[0]
-            fms["departure"] = departure["airport"]
-            fms["destination"] = destination["airport"]
-            fms["departure_board"] = self._board(fms["ADEP"], departure)
-            fms["destination_board"] = self._board(fms["ADES"], destination)
-            return FMSPlan(**fms)
+    def _parse_lines(self, file, file_path: str):
+        """Plan from the lines of a .fms file"""
+        fms = {"waypoints": [], "file_path": file_path}
+        in_waypoints = False
+        for _ in range(2):
+            next(file)
+        for line in file:
+            line = line.strip()
+            if in_waypoints:
+                wpt = line.split(" ")
+                fms["waypoints"].append(
+                    Waypoint(
+                        type_id=int(wpt[0]),
+                        name=wpt[1],
+                        type=wpt[2],
+                        altitude=float(wpt[3]),
+                        latitude=float(wpt[4]),
+                        longitude=float(wpt[5]),
+                    )
+                )
+            else:
+                key, value = line.split(" ")
+                if key in PLAN_KEYS:
+                    fms[key] = value
+                else:
+                    logger.warning(f"Ignoring {key} in {file_path}")
+                if key == "NUMENR":
+                    in_waypoints = True
+
+        departure = get_airport_by_icao(fms["ADEP"])[0]
+        destination = get_airport_by_icao(fms["ADES"])[0]
+        fms["departure"] = departure["airport"]
+        fms["destination"] = destination["airport"]
+        fms["departure_board"] = self._board(fms["ADEP"], departure)
+        fms["destination_board"] = self._board(fms["ADES"], destination)
+        return FMSPlan(**fms)
 
     def _board(self, icao_code: str, airport: dict):
         """OpenFlights city and IATA code, else the airports-py airport name"""
@@ -547,6 +552,12 @@ class FMS:
     def plans(self):
         self._update_plans()
         return self._plans
+
+    async def plan_from_text(self, text: str):
+        """An unsaved plan, from .fms text, with its procedures"""
+        plan = self._parse_lines(io.StringIO(text), "")
+        await plan.load_procedures(self._cifp, self._apt)
+        return plan
 
     async def get_plan(self, file_path: str):
         for plan in self.plans:

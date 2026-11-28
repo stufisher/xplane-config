@@ -555,6 +555,7 @@ class UI:
             self._generator,
             plans=lambda: self._plan.plans,
             load_plan=self._plan.get_plan,
+            preview_plan=self._plan.plan_from_text,
             location=self.aircraft_position,
             metar=self.metar,
             winds=self.winds_aloft,

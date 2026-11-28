@@ -135,6 +135,10 @@ class Plan:
         """A plan with its procedures, without making it the current one"""
         return await self._fms.get_plan(file_path)
 
+    async def plan_from_text(self, text: str):
+        """An unsaved plan from .fms text, with its procedures"""
+        return await self._fms.plan_from_text(text)
+
     @property
     def current(self):
         return self._plan

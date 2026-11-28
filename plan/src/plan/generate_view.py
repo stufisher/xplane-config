@@ -164,6 +164,7 @@ class PlannerDialog:
         generator: Generator,
         plans,
         load_plan,
+        preview_plan,
         location,
         metar,
         winds,
@@ -172,7 +173,8 @@ class PlannerDialog:
         on_generated,
     ):
         """plans() lists the FMSPlan objects, load_plan(path) awaits one with
-        its procedures, location() gives the aircraft (lat, lon) or None,
+        its procedures, preview_plan(text) awaits one from unsaved .fms text,
+        location() gives the aircraft (lat, lon) or None,
         metar(icao) the latest METAR or None, winds() the WindsAloft or None,
         stations() maps METAR stations to (lat, lon),
         on_select(path) loads an existing plan and on_generated(path) runs
@@ -180,6 +182,12 @@ class PlannerDialog:
         self._generator = generator
         self._plans = plans
         self._load_plan = load_plan
+        self._preview_plan = preview_plan
+        # Generated but not yet saved
+        self._generated = None
+        # Cruise level the last generated route was found at, filled in for
+        # reference; left as it is, the next plan picks its own level again
+        self._auto_cruise = None
         self._winds = winds
         self._stations = stations
         self._location = location
@@ -463,14 +471,21 @@ class PlannerDialog:
     def _build_plan_options(self):
         with ui.row().classes("w-full no-wrap items-stretch gap-4"):
             self._build_plan_selects()
-            self._generate_button = ui.button("Generate", on_click=self._generate)
+            self._generate_button = ui.button(icon="route", on_click=self._generate)
+            self._generate_button.tooltip("Generate a route to preview")
             self._generate_button.disable()
+            self._save_button = ui.button(icon="save", on_click=self._save)
+            self._save_button.tooltip("Save the plan")
+            self._save_button.disable()
 
     def _build_plan_selects(self):
         # Equal columns, each field filling its own, so no label is clipped
         with ui.grid(columns=4).classes("flex-1 min-w-0 gap-4"):
             self._dep_rwy = ui.select(
-                [AUTO], label="Departure runway", value=AUTO
+                [AUTO],
+                label="Departure runway",
+                value=AUTO,
+                on_change=self._clear_generated,
             ).classes("w-full")
             self._des_rwy = ui.select(
                 [AUTO],
@@ -479,13 +494,31 @@ class PlannerDialog:
                 on_change=self._load_approaches,
             ).classes("w-full")
             self._approach = ui.select(
-                [AUTO], label="Approach", value=AUTO
+                [AUTO], label="Approach", value=AUTO, on_change=self._clear_generated
             ).classes("w-full")
             self._cruise = ui.input(
-                "Cruise", placeholder="auto", prefix="FL"
+                "Cruise",
+                placeholder="auto",
+                prefix="FL",
+                on_change=self._cruise_changed,
             ).classes("w-full")
 
+    def _clear_generated(self):
+        """Drop an unsaved plan once what it was generated from changes"""
+        if self._generated is None:
+            return
+        self._generated = None
+        self._save_button.disable()
+        self._summary.set_text("")
+        self._show_route()
+
+    def _cruise_changed(self):
+        # Filling in the found level is not a change to the plan
+        if (self._cruise.value or "").strip() != self._auto_cruise:
+            self._clear_generated()
+
     async def _departure_changed(self):
+        self._clear_generated()
         self._show_route()
         adep = (self._departure.value or "").strip().upper()
         if adep:
@@ -578,6 +611,7 @@ class PlannerDialog:
         ]
         self._show_rows()
         self._destination = None
+        self._clear_generated()
         self._show_route()
         self._generate_button.disable()
         # A chosen destination is selected straight away, ready to generate
@@ -589,6 +623,7 @@ class PlannerDialog:
     async def _select_destination(self, e):
         selected = e.selection[0]["icao"] if e.selection else None
         self._destination = selected
+        self._clear_generated()
         self._show_route()
         self._summary.set_text("")
         if not selected:
@@ -614,6 +649,7 @@ class PlannerDialog:
         select.set_options(options, value=default or AUTO)
 
     async def _load_approaches(self):
+        self._clear_generated()
         icao, runway = self._destination, self._des_rwy.value
         if not icao or runway in (None, AUTO):
             self._approach.set_options([AUTO], value=AUTO)
@@ -634,6 +670,8 @@ class PlannerDialog:
             ui.notify(f"{adep}-{ades} already exists", type="negative")
             return
         cruise = (self._cruise.value or "").strip()
+        if cruise == self._auto_cruise:
+            cruise = ""
         if cruise and not cruise.isdigit():
             ui.notify("Cruise must be a flight level such as 240", type="negative")
             return
@@ -641,6 +679,7 @@ class PlannerDialog:
         def pick(select: ui.select):
             return None if select.value == AUTO else select.value
 
+        self._clear_generated()
         self._summary.set_text("Planning...")
         try:
             with busy(self._generate_button):
@@ -653,11 +692,7 @@ class PlannerDialog:
                     int(cruise) if cruise else None,
                     pick(self._approach),
                 )
-            path = self._generator.write(plan)
-        except FileExistsError:
-            self._summary.set_text("")
-            ui.notify(f"{adep}-{ades} already exists", type="negative")
-            return
+                preview = await self._preview_plan(plan.text)
         except (KeyError, ValueError, RuntimeError) as e:
             self._summary.set_text("")
             ui.notify(str(e), type="negative")
@@ -667,6 +702,24 @@ class PlannerDialog:
 
         logger.info(f"Generated {plan.summary}")
         self._summary.set_text(plan.summary)
-        ui.notify(f"Saved {adep}-{ades}", type="positive")
+        self._new_map.show(preview.segments)
+        if not cruise:
+            self._auto_cruise = str(plan.cruise_fl)
+            self._cruise.value = self._auto_cruise
+        self._generated = plan
+        self._save_button.enable()
+
+    async def _save(self):
+        plan = self._generated
+        if plan is None:
+            return
+        try:
+            path = self._generator.write(plan)
+        except FileExistsError:
+            ui.notify(f"{plan.adep}-{plan.ades} already exists", type="negative")
+            return
+        self._generated = None
+        self._save_button.disable()
+        ui.notify(f"Saved {plan.adep}-{plan.ades}", type="positive")
         self._on_generated(path)
         await self._load_plans()

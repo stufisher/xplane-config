@@ -122,16 +122,23 @@ def block_minutes(distance):
     return BLOCK_ALLOWANCE_MIN + distance / CRUISE_NM_PER_MIN
 
 
+# Block time above which the high levels are also tried
+HIGH_LEVEL_BLOCK_MIN = 90
+
+
 def cruise_levels(distance, initial_course):
     """Semicircular levels to try, odd eastbound and even westbound, in feet.
 
-    Short hops stay at FL200-FL250 so the flight is not all climb and descent.
+    Short hops stay at FL200-FL250 so the flight is not all climb and descent;
+    flights over an hour and a half also try FL290-FL340.
     """
     east = initial_course < 180
     if distance < 120:
         levels = [170] if east else [180]
     else:
         levels = [210, 230, 250] if east else [200, 220, 240]
+        if block_minutes(distance) > HIGH_LEVEL_BLOCK_MIN:
+            levels += [290, 310, 330] if east else [300, 320, 340]
     return [fl * 100 for fl in levels]
 
 
@@ -391,6 +398,8 @@ class GeneratedPlan:
     ades: str
     text: str
     summary: str
+    # Flight level the route was found at, e.g. 340
+    cruise_fl: int
 
 
 class Generator:
@@ -920,7 +929,9 @@ class Generator:
             f"{named(app[1], app_trans) if app else '-'} {des_rwy or '-'} {des.icao}, "
             f"{round(total)}nm FL{cruise // 100}"
         )
-        return GeneratedPlan(dep.icao, des.icao, "\n".join(lines) + "\n", summary)
+        return GeneratedPlan(
+            dep.icao, des.icao, "\n".join(lines) + "\n", summary, cruise // 100
+        )
 
     def plan_path(self, adep, ades):
         return os.path.join(self._paths.fms_plans, f"{adep}-{ades}.fms")
