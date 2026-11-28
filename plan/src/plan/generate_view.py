@@ -110,6 +110,25 @@ def colour_weather_cells(table: ui.table, *names: str, wrap: bool = True):
         )
 
 
+def airport_runway_cells(table: ui.table, *names: str):
+    """Airport on one line and its runway in bold below, from <name> and
+    <name>_runway, with <name>_tip on hovering the runway"""
+    for name in names:
+        table.add_slot(
+            f"body-cell-{name}",
+            f'''<q-td :props="props">
+                <div>{{{{ props.value }}}}</div>
+                <div class="text-weight-bold" style="display: inline-block">
+                    {{{{ props.row.{name}_runway }}}}
+                    <q-tooltip v-if="props.row.{name}_tip"
+                               style="white-space: pre-line; font-size: 0.85rem">
+                        {{{{ props.row.{name}_tip }}}}
+                    </q-tooltip>
+                </div>
+            </q-td>''',
+        )
+
+
 def combined_score(weather, lengths):
     """Weather plus short runways; -1 when no weather is known at all."""
     known = [wx.score for wx in weather if wx.score >= 0]
@@ -244,6 +263,7 @@ class PlannerDialog:
             on_select=self._select_plan,
         ).props("dense virtual-scroll").classes("flex-1 min-w-0").style("height: 320px")
         colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "app")
+        airport_runway_cells(self._plans_table, "dep", "arr")
         colour_weather_cells(self._plans_table, "enroute", wrap=False)
         # Clicking a row shows its route on the map; the checkbox loads it
         self._plans_table.on("row-click", self._preview_plan)
@@ -266,8 +286,18 @@ class PlannerDialog:
         return {
             "path": plan.file_path,
             # The runway on a line of its own keeps the column narrow
-            "dep": f"{plan.departure_board} ({plan.ADEP})\n{plan.DEPRWY or ''}",
-            "arr": f"{plan.destination_board} ({plan.ADES})\n{plan.DESRWY or ''}",
+            "dep": f"{plan.departure_board} ({plan.ADEP})",
+            "dep_runway": plan.DEPRWY or "",
+            "dep_tip": wind_tip(
+                self._generator.runway_approaches(plan.ADEP),
+                metar_wind(self._metar(plan.ADEP)),
+            ),
+            "arr": f"{plan.destination_board} ({plan.ADES})",
+            "arr_runway": plan.DESRWY or "",
+            "arr_tip": wind_tip(
+                self._generator.runway_approaches(plan.ADES),
+                metar_wind(self._metar(plan.ADES)),
+            ),
             "nm": round(distance) if distance else "",
             "time": hours_minutes(minutes) if distance else "",
             "minutes": minutes,
@@ -361,7 +391,7 @@ class PlannerDialog:
                     self._generator.airport_choices(),
                     label="Departure",
                     with_input=True,
-                    on_change=self._show_route,
+                    on_change=self._departure_changed,
                 )
                 .props("dense")
                 .style("min-width: 280px")
@@ -455,6 +485,14 @@ class PlannerDialog:
                 "Cruise", placeholder="auto", prefix="FL"
             ).classes("w-full")
 
+    async def _departure_changed(self):
+        self._show_route()
+        adep = (self._departure.value or "").strip().upper()
+        if adep:
+            await self._load_runways(self._dep_rwy, adep, arrival=False)
+        else:
+            self._dep_rwy.set_options([AUTO], value=AUTO)
+
     def _show_route(self):
         """Departure and the chosen destination joined by a straight line"""
         adep = (self._departure.value or "").strip().upper()
@@ -519,8 +557,6 @@ class PlannerDialog:
             except KeyError as e:
                 ui.notify(str(e), type="negative")
                 return
-            # Runways for the departure load the navdata, which then stays cached
-            await self._load_runways(self._dep_rwy, adep, arrival=False)
         self._rows = [
             {
                 "icao": d.icao,
@@ -570,7 +606,12 @@ class PlannerDialog:
                 self._generator.default_runway(icao, arrival, wind),
             )
         )
-        select.set_options([AUTO] + runways, value=default or AUTO)
+        # Each runway with its wind, e.g. "RW26 (head 10kt, cross 12kt)"
+        options = {AUTO: AUTO}
+        for runway in runways:
+            on_runway = runway_wind(runway, wind)
+            options[runway] = f"{runway} ({on_runway})" if on_runway else runway
+        select.set_options(options, value=default or AUTO)
 
     async def _load_approaches(self):
         icao, runway = self._destination, self._des_rwy.value
