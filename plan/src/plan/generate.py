@@ -122,6 +122,8 @@ def block_minutes(distance):
     return BLOCK_ALLOWANCE_MIN + distance / CRUISE_NM_PER_MIN
 
 
+# Distances searched in turn for airway points to end a route without a STAR
+NO_STAR_RADII_NM = (50, 75, 100)
 # Block time above which the high levels are also tried
 HIGH_LEVEL_BLOCK_MIN = 90
 
@@ -739,8 +741,12 @@ class Generator:
             if entry not in allowed:
                 allowed.add(entry)
                 add_to_grid(entry)
-        if not finish:
-            for n in near(des.pos, 50):
+        # Without a STAR the route ends at the airway points nearest the
+        # airport, looking further out where there are none close by
+        for radius in NO_STAR_RADII_NM:
+            if finish:
+                break
+            for n in near(des.pos, radius):
                 finish[n] = (nm(nav.pos[n], des.pos), None)
 
         # Short hops: a SID end may go straight to a STAR entry
