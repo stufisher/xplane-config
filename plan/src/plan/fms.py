@@ -3,6 +3,7 @@ import io
 import logging
 import mmap
 import os
+import re
 from typing import Optional
 
 from airports.airport_data import get_airport_by_icao
@@ -206,8 +207,9 @@ def get_waypoint(
         nav_rows = find_rows(nav_path, waypoint.encode(), 7, 10, (1, 2, 8, 9))
         found_waypoints = in_region(nav_rows)
 
-    # Region missing from the nav data, so take whatever matched the name
-    if not found_waypoints:
+    # Region missing from the nav data, so take whatever matched the name;
+    # never for a runway, as every airport has one by that name
+    if not found_waypoints and not RUNWAY_IDENT.match(waypoint):
         found_waypoints = fix_rows or nav_rows
         if found_waypoints and region:
             logger.warning(f"No {waypoint} in region {region}, using first match")
@@ -249,7 +251,8 @@ def runway_matches(name: str, wanted: str):
 def parse_procedure(
     procedure_name: str, icao_code: str, cifp_dir: str = XPlanePaths().cifp
 ):
-    """Return the procedure's legs grouped by transition, its runways and its type.
+    """Return the procedure's legs grouped by transition, its runways, its type
+    and the runways placed at the airport for want of their own position.
 
     A procedure name covers several alternative routes: one set of legs per
     departure/arrival runway, plus one per enroute transition. They are keyed by
@@ -260,6 +263,7 @@ def parse_procedure(
     transitions = {}
     complete = set()
     runways = {}
+    at_airport = []
     found_procedure_type = None
     with open(file_path) as cifp_file:
         for line in cifp_file:
@@ -270,11 +274,20 @@ def parse_procedure(
                 runway_name = procedure_details[0].strip()
                 runway_details = procedure_details_orig.split(";")
                 runway_coords = runway_details[1].split(",")
+                # Some rows carry no threshold position, e.g. EGLC RW09; the
+                # airport's own position stands in for it
+                if len(runway_coords) < 2 or not runway_coords[0].strip():
+                    position = airport_position(icao_code)
+                    if position is None:
+                        logger.debug(f"No position for {icao_code} {runway_name}")
+                        continue
+                    latitude, longitude = position
+                    at_airport.append(runway_name)
+                else:
+                    latitude = dms2deg(runway_coords[0])
+                    longitude = dms2deg(runway_coords[1])
                 runways[runway_name] = Waypoint(
-                    type_id=1,
-                    name=runway_name,
-                    latitude=dms2deg(runway_coords[0]),
-                    longitude=dms2deg(runway_coords[1]),
+                    type_id=1, name=runway_name, latitude=latitude, longitude=longitude
                 )
                 continue
 
@@ -301,7 +314,7 @@ def parse_procedure(
             if procedure_type == "APPCH" and description[3:4] == "M":
                 complete.add(transition)
 
-    return transitions, runways, found_procedure_type
+    return transitions, runways, found_procedure_type, at_airport
 
 
 def select_transition(transitions: dict, plan_runway: str = None):
@@ -374,9 +387,15 @@ class CIFP:
         if procedure_key in self._procedure_cache:
             return self._procedure_cache[procedure_key]
 
-        transitions, runways, found_procedure_type = await run.cpu_bound(
+        transitions, runways, found_procedure_type, at_airport = await run.cpu_bound(
             parse_procedure, procedure_name, icao_code, self._paths.cifp
         )
+        # Logged here as the parse runs in a worker process without logging
+        for runway_name in at_airport:
+            logger.info(
+                f"No position for {icao_code} {runway_name}, "
+                "falling back to the airport's"
+            )
         self._runways_cache[icao_code] = runways
 
         runway, procedure_waypoints = select_transition(transitions, plan_runway)
@@ -451,6 +470,17 @@ class CIFP:
         )
         self._procedure_cache[procedure_key] = proc
         return proc
+
+
+RUNWAY_IDENT = re.compile(r"RW\d{2}[LRC]?$")
+
+
+def airport_position(icao_code: str):
+    """(lat, lon) of the airport from airports-py, None when it is unknown"""
+    found = get_airport_by_icao(icao_code)
+    if not found:
+        return None
+    return found[0]["latitude"], found[0]["longitude"]
 
 
 def dms2deg(dms: str):
