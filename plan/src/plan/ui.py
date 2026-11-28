@@ -15,7 +15,7 @@ from nicegui.element import Element
 from .plan import Plan
 from .apt import APT
 from .fms import latlon_to_fms
-from .generate import Generator, nm, runway_heading
+from .generate import Generator, block_minutes, nm, runway_heading
 from .divert import (
     ON_PATH_FT,
     WELL_OFF_PATH_FT,
@@ -82,6 +82,8 @@ High: steepen a little; low: shallow a little; then back to −3°.
   distance to the runway when it is in the FPLN.
 """
 
+# Ground speed below which an ETA comes from the block time estimate
+MIN_ETA_SPEED_KT = 50
 # Chrome app window size that fits the whole UI
 DEFAULT_WINDOW_SIZE = "956x652"
 # Seconds to wait after the last window disconnects before exiting, as a
@@ -717,12 +719,7 @@ class UI:
         )
         ils = ils_text(runway)
         direct, intercept, final = v.legs
-        eta = ""
-        if v.eta_min:
-            eta = f"ETA {v.eta_min:.0f} min"
-            if self._plan.time is not None:
-                arrival = (self._plan.time + v.eta_min * 60) % 86400
-                eta += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
+        eta = self._eta_text(v.eta_min) if v.eta_min else ""
         descent = f" ({v.descent})" if v.descent else ""
         s = v.speeds
         decel = ""
@@ -831,6 +828,29 @@ class UI:
         if not self._divert_target:
             self._show_progress(plan, position, route_length(path), wind, hazards)
 
+    def _eta_text(self, minutes, estimate=False):
+        """e.g. "ETA 42 min (14:35Z)", the time from the sim's zulu clock"""
+        text = f"ETA {'~' if estimate else ''}{minutes:.0f} min"
+        if self._plan.time is not None:
+            arrival = (self._plan.time + minutes * 60) % 86400
+            text += f" ({int(arrival // 3600):02d}:{int(arrival % 3600 // 60):02d}Z)"
+        return text + (", block estimate" if estimate else "")
+
+    def _plan_eta(self, remaining_nm, on_route, failed=()):
+        """ETA at the current ground speed once the aircraft is on the route
+        and above MIN_ETA_SPEED_KT; otherwise, as on the ground or before
+        joining, the planner's block time for the distance left. With failed
+        procedures the distance misses their legs, so it is marked with a *."""
+        speed = self._plan.location.groundspeed
+        speed_kt = speed * 1.943844 if speed else 0
+        if on_route and speed_kt >= MIN_ETA_SPEED_KT:
+            text = self._eta_text(remaining_nm / speed_kt * 60)
+        else:
+            text = self._eta_text(block_minutes(remaining_nm), estimate=True)
+        if failed:
+            text = f"{text}*\n* without {', '.join(failed)}, which could not be loaded"
+        return text
+
     def _show_progress(self, plan, position, total, wind, hazards):
         """Redraw the route progress bar when anything on it has changed"""
 
@@ -872,6 +892,15 @@ class UI:
             if plan and position is not None
             else f"{total:.0f} nm" if plan else "",
             markers,
+            tip=(
+                self._plan_eta(
+                    max(0, total - (position or 0)),
+                    position is not None,
+                    plan.failed_procedures,
+                )
+                if plan
+                else ""
+            ),
         )
 
     def _show_divert_progress(self, v, eta):
@@ -946,7 +975,7 @@ class UI:
         if tip:
             self._progress_text.classes(add="font-bold")
             with self._progress_text:
-                ui.tooltip(tip).style("font-size: 0.85rem")
+                ui.tooltip(tip).style("font-size: 0.85rem; white-space: pre-line")
         else:
             self._progress_text.classes(remove="font-bold")
         self._progress_bar.clear()

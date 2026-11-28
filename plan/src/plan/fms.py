@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 import io
 import logging
 import mmap
@@ -79,16 +79,29 @@ class FMSPlan:
     sid_proc: Optional[Procedure] = None
     star_proc: Optional[Procedure] = None
     app_proc: Optional[Procedure] = None
+    # Procedures named in the plan that could not be read from the CIFP
+    failed_procedures: list[str] = field(default_factory=list)
 
     async def load_procedures(self, cifp, apt: APT):
         logger.info(f"Loading procedures for {self.ADEP} to {self.ADES}")
+        self.failed_procedures = []
+
+        async def load(name, *args, **kwargs):
+            """The procedure, or None and noted as failed when it cannot be read"""
+            try:
+                return await cifp.get_procedure(name, *args, **kwargs)
+            except Exception as e:
+                logger.warning(f"Could not load {name}: {e}")
+                self.failed_procedures.append(name)
+                return None
+
         if self.SID and self.sid_proc is None:
-            self.sid_proc = await cifp.get_procedure(
+            self.sid_proc = await load(
                 self.SID, self.ADEP, self.DEPRWY, transition=self.SIDTRANS
             )
         if self.STAR and self.star_proc is None:
             # With an approach loaded it is the approach that reaches the runway
-            self.star_proc = await cifp.get_procedure(
+            self.star_proc = await load(
                 self.STAR,
                 self.ADES,
                 self.DESRWY,
@@ -101,7 +114,7 @@ class FMSPlan:
                 if self.star_proc and self.star_proc.waypoints
                 else None
             )
-            self.app_proc = await cifp.get_procedure(
+            self.app_proc = await load(
                 self.APP, self.ADES, entry_fix=star_end, transition=self.APPTRANS
             )
 
