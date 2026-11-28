@@ -7,6 +7,7 @@ from nicegui import run, ui
 
 from .enroute import enroute_hazard, enroute_text, enroute_wind, route_points
 from .generate import Generator, block_minutes, runway_heading, runway_score
+from .route_map import RouteMap
 from .weather import challenge, metar_wind
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 AUTO = "Auto"
 # Plans judged between progress bar updates
 PLAN_BATCH = 5
+# Route map beside each table
+MAP_WIDTH = "260px"
 
 
 def hours_minutes(minutes: float) -> str:
@@ -93,15 +96,16 @@ def with_approach(score, approach_score):
     return score + approach_score
 
 
-def colour_weather_cells(table: ui.table, *names: str):
+def colour_weather_cells(table: ui.table, *names: str, wrap: bool = True):
     """Show each named weather cell in the colour stored as <name>_colour,
-    with <name>_tip on hover"""
+    with <name>_tip on hover; without wrap only its own line breaks split it"""
+    white_space = "pre-line" if wrap else "pre"
     for name in names:
         table.add_slot(
             f"body-cell-{name}",
             f'''<q-td :props="props">
                 <span :style="{{color: props.row.{name}_colour}}"
-                      :title="props.row.{name}_tip" style="white-space: pre-line">{{{{ props.value }}}}</span>
+                      :title="props.row.{name}_tip" style="white-space: {white_space}">{{{{ props.value }}}}</span>
             </q-td>''',
         )
 
@@ -140,6 +144,7 @@ class PlannerDialog:
         self,
         generator: Generator,
         plans,
+        load_plan,
         location,
         metar,
         winds,
@@ -147,13 +152,15 @@ class PlannerDialog:
         on_select,
         on_generated,
     ):
-        """plans() lists the FMSPlan objects, location() gives the aircraft
-        (lat, lon) or None, metar(icao) the latest METAR or None, winds() the
-        WindsAloft or None, stations() maps METAR stations to (lat, lon),
+        """plans() lists the FMSPlan objects, load_plan(path) awaits one with
+        its procedures, location() gives the aircraft (lat, lon) or None,
+        metar(icao) the latest METAR or None, winds() the WindsAloft or None,
+        stations() maps METAR stations to (lat, lon),
         on_select(path) loads an existing plan and on_generated(path) runs
         after a save."""
         self._generator = generator
         self._plans = plans
+        self._load_plan = load_plan
         self._winds = winds
         self._stations = stations
         self._location = location
@@ -166,7 +173,7 @@ class PlannerDialog:
 
         # Scrolls rather than clipping when the app window is short
         with ui.dialog() as self._dialog, ui.card().style(
-            "min-width: 820px; max-width: 95vw; max-height: 95vh; overflow-y: auto"
+            "width: 1080px; max-width: 95vw; max-height: 95vh; overflow-y: auto"
         ):
             with ui.row().classes("w-full items-center no-wrap"):
                 with ui.tabs().classes("flex-1") as tabs:
@@ -202,6 +209,12 @@ class PlannerDialog:
         self._plans_progress_label = ui.label("").classes("text-xs")
         self._plans_progress.set_visibility(False)
         self._plans_progress_label.set_visibility(False)
+        with ui.row().classes("w-full no-wrap gap-2"):
+            self._build_plans_table()
+            self._plans_map = RouteMap()
+            self._plans_map.leaflet.style(f"width: {MAP_WIDTH}; height: 320px")
+
+    def _build_plans_table(self):
         self._plans_table = ui.table(
             columns=[
                 {"name": "dep", "label": "From", "field": "dep", "align": "left",
@@ -229,8 +242,11 @@ class PlannerDialog:
             row_key="path",
             selection="single",
             on_select=self._select_plan,
-        ).props("dense virtual-scroll").classes("w-full").style("height: 320px")
-        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "enroute", "app")
+        ).props("dense virtual-scroll").classes("flex-1 min-w-0").style("height: 320px")
+        colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "app")
+        colour_weather_cells(self._plans_table, "enroute", wrap=False)
+        # Clicking a row shows its route on the map; the checkbox loads it
+        self._plans_table.on("row-click", self._preview_plan)
 
     def _plan_row(self, plan, winds, stations):
         """Table row for an existing plan, judged on its planned runways and
@@ -259,8 +275,10 @@ class PlannerDialog:
             "dep_wx_colour": severity_colour(weather[0].score),
             "arr_wx": weather_text(weather[1]),
             "arr_wx_colour": severity_colour(weather[1].score),
-            # Wind and hazard on lines of their own
-            "enroute": enroute_text(wind, hazard).replace(" · ", "\n"),
+            # Short lines of their own: wind, its maximum, then any hazard
+            "enroute": enroute_text(wind, hazard)
+            .replace(" · ", "\n")
+            .replace(", max ", "\nmax "),
             "enroute_colour": severity_colour(enroute_score),
             "app": approach_text(plan.APP, approach),
             "app_colour": approach_colour(approach.tier),
@@ -321,6 +339,12 @@ class PlannerDialog:
         self._plans_table.selected = []
         self._plans_table.update()
 
+    async def _preview_plan(self, e):
+        path = e.args[1]["path"]
+        plan = await self._load_plan(path)
+        if plan:
+            self._plans_map.show(plan.segments)
+
     def _select_plan(self, e):
         if not e.selection:
             return
@@ -337,6 +361,7 @@ class PlannerDialog:
                     self._generator.airport_choices(),
                     label="Departure",
                     with_input=True,
+                    on_change=self._show_route,
                 )
                 .props("dense")
                 .style("min-width: 280px")
@@ -370,6 +395,18 @@ class PlannerDialog:
             "Hardest first (weather, runways and approach)", on_change=self._show_rows
         )
 
+        # The map spans the table and the plan options beside it
+        with ui.row().classes("w-full no-wrap gap-2 items-stretch"):
+            with ui.column().classes("flex-1 min-w-0 gap-2"):
+                self._build_destinations_table()
+                self._build_plan_options()
+            self._new_map = RouteMap()
+            self._new_map.leaflet.style(
+                f"width: {MAP_WIDTH}; height: auto; min-height: 200px"
+            )
+        self._summary = ui.label().classes("text-sm")
+
+    def _build_destinations_table(self):
         self._table = ui.table(
             columns=[
                 {"name": "iata", "label": "IATA", "field": "iata", "align": "left",
@@ -390,11 +427,18 @@ class PlannerDialog:
             row_key="icao",
             selection="single",
             on_select=self._select_destination,
-        ).props("dense virtual-scroll").classes("w-full").style("height: 160px")
+        ).props("dense virtual-scroll").classes("w-full").style("height: 200px")
         colour_weather_cells(self._table, "wx", "app")
 
+    def _build_plan_options(self):
+        with ui.row().classes("w-full no-wrap items-stretch gap-4"):
+            self._build_plan_selects()
+            self._generate_button = ui.button("Generate", on_click=self._generate)
+            self._generate_button.disable()
+
+    def _build_plan_selects(self):
         # Equal columns, each field filling its own, so no label is clipped
-        with ui.grid(columns=4).classes("w-full gap-4"):
+        with ui.grid(columns=4).classes("flex-1 min-w-0 gap-4"):
             self._dep_rwy = ui.select(
                 [AUTO], label="Departure runway", value=AUTO
             ).classes("w-full")
@@ -410,9 +454,19 @@ class PlannerDialog:
             self._cruise = ui.input(
                 "Cruise", placeholder="auto", prefix="FL"
             ).classes("w-full")
-        self._summary = ui.label().classes("text-sm")
-        self._generate_button = ui.button("Generate", on_click=self._generate)
-        self._generate_button.disable()
+
+    def _show_route(self):
+        """Departure and the chosen destination joined by a straight line"""
+        adep = (self._departure.value or "").strip().upper()
+        icaos = [icao for icao in (adep, self._destination) if icao]
+        positions = self._generator.positions(icaos)
+        points = [
+            SimpleNamespace(name=icao, latitude=lat, longitude=lon)
+            for icao in icaos
+            if icao in positions
+            for lat, lon in [positions[icao]]
+        ]
+        self._new_map.show([("ENRT", points)] if points else [])
 
     def _update_range_label(self):
         value = self._range.value
@@ -488,6 +542,7 @@ class PlannerDialog:
         ]
         self._show_rows()
         self._destination = None
+        self._show_route()
         self._generate_button.disable()
         # A chosen destination is selected straight away, ready to generate
         if ades and self._rows:
@@ -498,6 +553,7 @@ class PlannerDialog:
     async def _select_destination(self, e):
         selected = e.selection[0]["icao"] if e.selection else None
         self._destination = selected
+        self._show_route()
         self._summary.set_text("")
         if not selected:
             self._generate_button.disable()

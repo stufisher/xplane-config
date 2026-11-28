@@ -8,10 +8,12 @@ from .generate_view import (
     approach_colour,
     approach_text,
     busy,
+    MAP_WIDTH,
     colour_weather_cells,
     runway_wind,
     severity_colour,
 )
+from .route_map import RouteMap
 from .weather import challenge, is_wet, metar_wind
 
 M_TO_FT = 3.28084
@@ -47,9 +49,11 @@ class DivertDialog:
         self._on_divert = on_divert
         self._airport = None
         self._runways = []
+        # ICAO the map draws a line to from the aircraft
+        self._target = None
 
         with ui.dialog() as self._dialog, ui.card().style(
-            "min-width: 820px; max-width: 95vw; max-height: 95vh; overflow-y: auto"
+            "width: 1080px; max-width: 95vw; max-height: 95vh; overflow-y: auto"
         ):
             with ui.row().classes("w-full items-center no-wrap"):
                 ui.label("Divert").classes("text-lg")
@@ -70,27 +74,38 @@ class DivertDialog:
                     "flat round dense"
                 ).tooltip("Close")
 
-            self._airports_table = ui.table(
-                columns=[
-                    {"name": "iata", "label": "IATA", "field": "iata", "align": "left",
-                     "sortable": True},
-                    {"name": "city", "label": "City", "field": "city", "align": "left",
-                     "sortable": True},
-                    {"name": "icao", "label": "ICAO", "field": "icao", "align": "left"},
-                    {"name": "name", "label": "Name", "field": "name", "align": "left"},
-                    {"name": "nm", "label": "nm", "field": "nm", "sortable": True},
-                    {"name": "brg", "label": "Brg", "field": "brg"},
-                    {"name": "eta", "label": "ETA min", "field": "eta", "sortable": True},
-                    {"name": "rwy", "label": "Rwy ft", "field": "rwy", "sortable": True},
-                    {"name": "wx", "label": "Weather", "field": "wx", "align": "left"},
-                    {"name": "reach", "label": "Reach", "field": "reach", "align": "left"},
-                ],
-                rows=[],
-                row_key="icao",
-                selection="single",
-                on_select=self._select_airport,
-            ).props("dense virtual-scroll").classes("w-full").style("height: 200px")
-            colour_weather_cells(self._airports_table, "wx", "reach")
+            with ui.row().classes("w-full no-wrap gap-2"):
+                self._airports_table = ui.table(
+                    columns=[
+                        {"name": "iata", "label": "IATA", "field": "iata",
+                         "align": "left", "sortable": True},
+                        {"name": "city", "label": "City", "field": "city",
+                         "align": "left", "sortable": True},
+                        {"name": "icao", "label": "ICAO", "field": "icao",
+                         "align": "left"},
+                        {"name": "name", "label": "Name", "field": "name",
+                         "align": "left"},
+                        {"name": "nm", "label": "nm", "field": "nm", "sortable": True},
+                        {"name": "brg", "label": "Brg", "field": "brg"},
+                        {"name": "eta", "label": "ETA min", "field": "eta",
+                         "sortable": True},
+                        {"name": "rwy", "label": "Rwy ft", "field": "rwy",
+                         "sortable": True},
+                        {"name": "wx", "label": "Weather", "field": "wx",
+                         "align": "left"},
+                        {"name": "reach", "label": "Reach", "field": "reach",
+                         "align": "left"},
+                    ],
+                    rows=[],
+                    row_key="icao",
+                    selection="single",
+                    on_select=self._select_airport,
+                ).props("dense virtual-scroll").classes("flex-1 min-w-0").style(
+                    "height: 200px"
+                )
+                colour_weather_cells(self._airports_table, "wx", "reach")
+                self._map = RouteMap()
+                self._map.leaflet.style(f"width: {MAP_WIDTH}; height: 200px")
 
             self._airport_label = ui.label("").classes("text-sm")
             self._runways_table = ui.table(
@@ -115,6 +130,8 @@ class DivertDialog:
 
     async def open(self):
         self._dialog.open()
+        # The aircraft has moved since the dialog was last open
+        self._show_route(self._target)
         if not self._airports_table.rows:
             await self._load_nearby()
 
@@ -124,6 +141,33 @@ class DivertDialog:
         if loc is None or loc.latitude is None:
             return None
         return loc.latitude, loc.longitude, loc.altitude_ft, loc.variation
+
+    def _show_route(self, icao=None):
+        """Aircraft joined to the airport by a straight line"""
+        self._target = icao
+        points = []
+        loc = self._location()
+        aircraft = None
+        if loc is not None and loc.latitude is not None:
+            aircraft = (loc.latitude, loc.longitude, loc.psi)
+            # The plane icon marks this point
+            points.append(
+                SimpleNamespace(
+                    name="Aircraft",
+                    latitude=loc.latitude,
+                    longitude=loc.longitude,
+                    marker=False,
+                )
+            )
+        if icao:
+            position = self._generator.positions([icao]).get(icao)
+            if position:
+                points.append(
+                    SimpleNamespace(
+                        name=icao, latitude=position[0], longitude=position[1]
+                    )
+                )
+        self._map.show([("ENRT", points)] if points else [], aircraft)
 
     def _speed(self):
         """Ground speed, kt, 0 without one"""
@@ -179,6 +223,7 @@ class DivertDialog:
             self._airports_table.rows = await run.io_bound(rows)
         self._airports_table.selected = []
         self._airports_table.update()
+        self._show_route()
 
     async def _search_airport(self, e):
         if not e.value:
@@ -202,6 +247,7 @@ class DivertDialog:
         row = e.selection[0]
         self._airport = row
         icao = row["icao"]
+        self._show_route(icao)
         variation = (self._aircraft() or (0, 0, 0, 0))[3]
         metar = self._metar(icao)
         wind = metar_wind(metar)

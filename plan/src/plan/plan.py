@@ -125,6 +125,10 @@ class Plan:
     async def load_plan(self, file_path: str):
         self._plan = await self._fms.get_plan(file_path)
 
+    async def get_plan(self, file_path: str):
+        """A plan with its procedures, without making it the current one"""
+        return await self._fms.get_plan(file_path)
+
     @property
     def current(self):
         return self._plan
