@@ -8,7 +8,8 @@ from .apt import APT
 from .fms import FMS
 from .rest import REST
 from .udp import UDP
-from .weather import Weather
+from .grib import LiveWinds
+from .weather import LiveWeather, Weather
 from .xplane import XPlanePaths
 from .to.to import CG_DREF, WEIGHT_DREF, FlexVSpeeds, TOCalculator
 
@@ -66,6 +67,11 @@ class Plan:
         # Subscribed datarefs come over UDP, or the REST websocket
         self._drefs = self._rest if rest_drefs else self.udp
         self._weather = Weather(paths.real_weather)
+        self._live_weather = LiveWeather()
+        self._live_winds = LiveWinds()
+        # Live METARs replace the sim's real weather for display and planning;
+        # takeoff performance keeps the sim's, which is what the aircraft flies in
+        self.live_weather = False
         self._plan = None
         self._to = TOCalculator(self._drefs, apt, self._weather)
         # Latest takeoff calculation, None until PERF has been calculated
@@ -154,21 +160,37 @@ class Plan:
     def weather_des(self):
         if not self._plan:
             return
-        return self._weather.get_forecast(self._plan.ADES)
+        return self._metars.get_forecast(self._plan.ADES)
+
+    @property
+    def _metars(self):
+        return self._live_weather if self.live_weather else self._weather
+
+    def refresh_live_weather(self, force: bool = False) -> bool:
+        """Fetch live METARs and winds when due; False when there are no
+        METARs to use"""
+        self._live_weather.refresh(force)
+        self._live_winds.refresh(force)
+        return self._live_weather.ready
+
+    @property
+    def live_winds(self):
+        """WindsAloft from NOMADS while live weather is on, else None"""
+        return self._live_winds.winds if self.live_weather else None
 
     def forecast(self, icao: str):
-        """Latest METAR for any airport, None when the sim has none"""
-        return self._weather.get_forecast(icao)
+        """Latest METAR for any airport, None when there is none"""
+        return self._metars.get_forecast(icao)
 
     def metar_stations(self):
-        """ICAO codes the sim has METARs for"""
-        return self._weather.stations()
+        """ICAO codes with METARs"""
+        return self._metars.stations()
 
     @property
     def weather_dep(self):
         if not self._plan:
             return
-        return self._weather.get_forecast(self._plan.ADEP)
+        return self._metars.get_forecast(self._plan.ADEP)
 
     async def mcdu_init(self, cost=10, flt_number="A123", cruise_alt=350):
         logger.info("MCDU: Init")

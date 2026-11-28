@@ -1,5 +1,8 @@
+import csv
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import gzip
+import io
 from itertools import islice
 import logging
 import math
@@ -7,6 +10,7 @@ import os
 import re
 import time
 
+import httpx
 from metar import Metar
 
 from .xplane import XPlanePaths
@@ -16,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Reports older than this, against the time of the METAR file, are ignored;
 # stations that stopped reporting stay in X-Plane's file with their last one
 MAX_METAR_AGE = timedelta(minutes=90)
+# Every current METAR worldwide, updated by aviationweather.gov each minute
+LIVE_METAR_URL = "https://aviationweather.gov/data/cache/metars.cache.csv.gz"
+LIVE_REFRESH_S = 300
 
 
 def sorted_listing_by_creation_time(directory):
@@ -92,6 +99,71 @@ class Weather:
             logger.debug(f"Ignoring {airport} report from {metar.time:%d %H:%M}Z")
             return None
         return metar
+
+
+class LiveWeather:
+    """Current METARs from aviationweather.gov. refresh() downloads them and
+    is slow, so it runs off the UI thread; lookups only read the last fetch."""
+
+    def __init__(self, url: str = LIVE_METAR_URL):
+        self._url = url
+        # ICAO -> (raw report, observation time UTC)
+        self._reports = {}
+        self._last_update = 0
+
+    @property
+    def ready(self) -> bool:
+        return bool(self._reports)
+
+    def refresh(self, force: bool = False):
+        """Download the reports once they are LIVE_REFRESH_S old, or now"""
+        if not force and time.time() - self._last_update < LIVE_REFRESH_S:
+            return
+        try:
+            response = httpx.get(self._url, timeout=30, follow_redirects=True)
+            response.raise_for_status()
+            text = gzip.decompress(response.content).decode()
+        except (httpx.HTTPError, OSError) as e:
+            logger.warning(f"Could not fetch live METARs: {e}")
+            return
+        reports = {}
+        for row in csv.DictReader(io.StringIO(text)):
+            station, raw = row.get("station_id"), row.get("raw_text")
+            if not station or not raw:
+                continue
+            try:
+                observed = datetime.strptime(
+                    row["observation_time"][:19], "%Y-%m-%dT%H:%M:%S"
+                )
+            except (KeyError, ValueError):
+                continue
+            # A station can have a METAR and a later SPECI; the newest counts
+            if station not in reports or observed > reports[station][1]:
+                reports[station] = (raw, observed)
+        self._reports = reports
+        self._last_update = time.time()
+        logger.info(f"Fetched {len(reports)} live METARs")
+
+    def stations(self):
+        """ICAO codes of every station with a live report"""
+        return list(self._reports)
+
+    def get_forecast(self, airport: str):
+        report = self._reports.get(airport)
+        if report is None:
+            return None
+        raw, observed = report
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if now - observed > MAX_METAR_AGE:
+            logger.debug(f"Ignoring {airport} report from {observed:%d %H:%M}Z")
+            return None
+        if not raw.startswith(("METAR ", "SPECI ")):
+            raw = "METAR " + raw
+        try:
+            return Metar.Metar(raw, month=observed.month, year=observed.year)
+        except Metar.ParserError:
+            logger.debug(f"Could not parse weather for {airport}")
+            return None
 
 
 # Precipitation that leaves a runway wet or worse

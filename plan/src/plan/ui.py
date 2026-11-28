@@ -437,6 +437,13 @@ class UI:
                                 on_click=lambda: ui.clipboard.write(self._route.value),
                             )
                             copy_route_button.tooltip("Copy route to clipboard")
+                            self._live_weather = ToggleButton(icon="public")
+                            self._live_weather.tooltip(
+                                "Live METARs from aviationweather.gov and winds "
+                                "from NOAA instead of X-Plane's real weather"
+                            )
+                            # After ToggleButton's own handler, so value is the new state
+                            self._live_weather.on("click", self.toggle_live_weather)
                     # Top aligned so a wrapping METAR doesn't push the other side down
                     with Row().classes("items-start"):
                         with Col(gap=0).classes("justify-start"):
@@ -574,7 +581,7 @@ class UI:
         return loc.latitude, loc.longitude
 
     def metar(self, icao: str):
-        """Latest METAR from the sim's real weather, None without one"""
+        """Latest METAR, live or from the sim's real weather, None without one"""
         try:
             return self._plan.forecast(icao)
         except Exception:
@@ -582,7 +589,10 @@ class UI:
             return None
 
     def winds_aloft(self):
-        """Winds from the newest real weather GRIB, reloaded when it changes"""
+        """Live GFS winds while live weather is on, else those from the newest
+        real weather GRIB, reloaded when it changes"""
+        if self._plan.live_winds:
+            return self._plan.live_winds
         path = latest_grib(self._paths.real_weather)
         if path is None:
             return None
@@ -613,7 +623,25 @@ class UI:
         self.update_plans()
         self.show_plan(path)
 
+    async def toggle_live_weather(self):
+        live = self._live_weather.value
+        if live:
+            self._live_weather.props("loading")
+            try:
+                ready = await run.io_bound(self._plan.refresh_live_weather, True)
+            finally:
+                self._live_weather.props(remove="loading")
+            if not ready:
+                ui.notify("Could not fetch live METARs", type="warning")
+                self._live_weather.toggle()
+                return
+        self._plan.live_weather = live
+        self.update_weather()
+        self.update_enroute()
+
     async def _background_task(self):
+        if self._plan.live_weather:
+            await run.io_bound(self._plan.refresh_live_weather)
         self.update_weather()
         self.update_enroute()
         self.update_divert()

@@ -1,4 +1,5 @@
-"""Winds aloft from X-Plane's real weather GRIB2 file.
+"""Winds aloft from X-Plane's real weather GRIB2 file, or the same GFS data
+fetched from NOAA NOMADS.
 
 Only what that file uses is supported: a regular lat/lon grid (template 3.0)
 with U and V wind on isobaric levels, complex packing with spatial
@@ -6,16 +7,34 @@ differencing (template 5.3) and no bitmap.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import glob
+import logging
 import math
 import os
 import struct
+import time
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 # GRIB2 meteorological parameters, discipline 0 category 2
 U_WIND, V_WIND = 2, 3
 # Level type of isobaric surfaces, in Pa
 ISOBARIC = 100
 MS_TO_KT = 1.943844
+
+# GFS 1° wind as X-Plane's real weather downloads it, from NOMADS
+NOMADS_URL = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl"
+NOMADS_LEVELS_MB = (100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 950)
+# A run is published a few hours after its time; older runs are tried in turn
+GFS_RUN_HOURS = 6
+GFS_RUNS_TRIED = 4
+# Forecasts are every 3 hours; the one valid nearest now is used
+GFS_STEP_HOURS = 3
+LIVE_WINDS_REFRESH_S = 1800
+LIVE_WINDS_DIR = os.path.expanduser("~/.cache/plan/gfs")
 
 
 def pressure_altitude_ft(hpa: float) -> float:
@@ -234,6 +253,82 @@ class WindsAloft:
         speed = math.hypot(u, v) * MS_TO_KT
         direction = (math.degrees(math.atan2(-u, -v)) + 360) % 360
         return direction, speed
+
+
+class LiveWinds:
+    """GFS winds from NOMADS for the forecast time nearest now, from the newest
+    run published. refresh() downloads and is slow, so it runs off the UI
+    thread; winds holds the last one fetched."""
+
+    def __init__(self, directory: str = LIVE_WINDS_DIR):
+        self._directory = directory
+        self.winds: WindsAloft | None = None
+        self._last_update = 0
+
+    def refresh(self, force: bool = False):
+        """Fetch winds once they are LIVE_WINDS_REFRESH_S old, or now"""
+        if not force and time.time() - self._last_update < LIVE_WINDS_REFRESH_S:
+            return
+        self._last_update = time.time()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        step = timedelta(hours=GFS_STEP_HOURS)
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        valid = midnight + round((now - midnight) / step) * step
+        run = midnight + timedelta(hours=now.hour // GFS_RUN_HOURS * GFS_RUN_HOURS)
+        for _ in range(GFS_RUNS_TRIED):
+            path = self._fetch(run, int((valid - run).total_seconds() // 3600))
+            if path:
+                if self.winds is None or self.winds.path != path:
+                    try:
+                        self.winds = WindsAloft(path)
+                    except (OSError, ValueError, IndexError, struct.error):
+                        logger.warning(f"Could not read live winds from {path}")
+                        os.remove(path)
+                        return
+                    logger.info(f"Live winds from {os.path.basename(path)}")
+                    self._remove_others(path)
+                return
+            run -= timedelta(hours=GFS_RUN_HOURS)
+        logger.warning("Could not fetch live winds")
+
+    def _fetch(self, run: datetime, hour: int) -> str | None:
+        """Path of the run's forecast for hour, downloaded unless already
+        cached; None when NOMADS does not have it yet"""
+        path = os.path.join(self._directory, f"gfs-{run:%Y%m%d-%H}z-f{hour:03d}.grib")
+        if os.path.exists(path):
+            return path
+        params = {
+            "dir": f"/gfs.{run:%Y%m%d}/{run:%H}/atmos",
+            "file": f"gfs.t{run:%H}z.pgrb2.1p00.f{hour:03d}",
+            "var_UGRD": "on",
+            "var_VGRD": "on",
+            "lev_10_m_above_ground": "on",
+            **{f"lev_{level}_mb": "on" for level in NOMADS_LEVELS_MB},
+        }
+        try:
+            response = httpx.get(NOMADS_URL, params=params, timeout=60)
+        except httpx.HTTPError as e:
+            logger.warning(f"Could not fetch live winds: {e}")
+            return None
+        # A run not yet published answers 404 with an HTML page
+        if response.status_code != 200 or not response.content.startswith(b"GRIB"):
+            logger.debug(f"No GFS {run:%Y%m%d %H}z f{hour:03d} yet")
+            return None
+        os.makedirs(self._directory, exist_ok=True)
+        # Written aside then renamed, so a partial file is never read
+        partial = path + ".part"
+        with open(partial, "wb") as file:
+            file.write(response.content)
+        os.replace(partial, path)
+        return path
+
+    def _remove_others(self, keep: str):
+        for path in glob.glob(os.path.join(self._directory, "gfs-*.grib")):
+            if path != keep:
+                try:
+                    os.remove(path)
+                except OSError:
+                    logger.debug(f"Could not remove {path}")
 
 
 def latest_grib(directory: str):
