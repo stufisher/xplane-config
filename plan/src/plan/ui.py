@@ -444,13 +444,14 @@ class UI:
                             spawn_aircaft_gate_button.tooltip(
                                 "Spawn aircraft at departure airport gate"
                             )
-                    with Row():
+                    with Row().classes("flex-nowrap items-center").style("flex: none"):
                         self._route = ui.input("Route", value="").classes("flex-1")
-                        copy_route_button = ui.button(
-                            icon="content_paste",
-                            on_click=lambda: ui.clipboard.write(self._route.value),
-                        )
-                        copy_route_button.tooltip("Copy route to clipboard")
+                        with ui.button_group().classes("shrink-0"):
+                            copy_route_button = ui.button(
+                                icon="content_paste",
+                                on_click=lambda: ui.clipboard.write(self._route.value),
+                            )
+                            copy_route_button.tooltip("Copy route to clipboard")
                     # Top aligned so a wrapping METAR doesn't push the other side down
                     with Row().classes("items-start"):
                         with Col(gap=0).classes("justify-start"):

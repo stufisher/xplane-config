@@ -229,7 +229,7 @@ class PlannerDialog:
             row_key="path",
             selection="single",
             on_select=self._select_plan,
-        ).props("dense virtual-scroll").style("height: 320px")
+        ).props("dense virtual-scroll").classes("w-full").style("height: 320px")
         colour_weather_cells(self._plans_table, "dep_wx", "arr_wx", "enroute", "app")
 
     def _plan_row(self, plan, winds, stations):
