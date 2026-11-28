@@ -182,7 +182,7 @@ class PlannerDialog:
         self._generator = generator
         self._plans = plans
         self._load_plan = load_plan
-        self._preview_plan = preview_plan
+        self._plan_from_text = preview_plan
         # Generated but not yet saved
         self._generated = None
         # Cruise level the last generated route was found at, filled in for
@@ -692,7 +692,7 @@ class PlannerDialog:
                     int(cruise) if cruise else None,
                     pick(self._approach),
                 )
-                preview = await self._preview_plan(plan.text)
+                preview = await self._plan_from_text(plan.text)
         except (KeyError, ValueError, RuntimeError) as e:
             self._summary.set_text("")
             ui.notify(str(e), type="negative")
