@@ -33,6 +33,8 @@ class Runway:
     lat: float
     lon: float
     elevation: int
+    # apt.dat surface type code, 0 when unknown
+    surface: int = 0
 
 
 @dataclass
@@ -107,6 +109,7 @@ def parse_airport_data(apt_path: str, icao_code: str):
                     lat=float(rw_fields[1]),
                     lon=float(rw_fields[2]),
                     elevation=elevation,
+                    surface=int(fields[2]) if fields[2].isdigit() else 0,
                 )
 
             rw_idx += 1

@@ -641,11 +641,21 @@ class PlannerDialog:
                 self._generator.default_runway(icao, arrival, wind),
             )
         )
-        # Each runway with its wind, e.g. "RW26 (head 10kt, cross 12kt)"
+        # Each runway with its length, surface and wind, e.g.
+        # "RW26 9800ft asphalt (head 10kt, cross 12kt)"
         options = {AUTO: AUTO}
         for runway in runways:
+            parts = [runway]
+            length = self._generator.runway_length_ft(icao, runway)
+            if length:
+                parts.append(f"{length}ft")
+            surface = self._generator.runway_surface(icao, runway)
+            if surface:
+                parts.append(surface)
             on_runway = runway_wind(runway, wind)
-            options[runway] = f"{runway} ({on_runway})" if on_runway else runway
+            if on_runway:
+                parts.append(f"({on_runway})")
+            options[runway] = " ".join(parts)
         select.set_options(options, value=default or AUTO)
 
     async def _load_approaches(self):

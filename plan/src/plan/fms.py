@@ -124,6 +124,10 @@ class FMSPlan:
         app = self.app_proc.waypoints if self.app_proc else []
         if app and self.DESRWY and app[-1].name != self.DESRWY:
             self.visual_threshold = cifp.runway(self.ADES, self.DESRWY)
+        elif not app and not self.star_proc and self.DESRWY:
+            # Nothing reaches the runway, so the last fix joins it by hand
+            await cifp.load_runways(self.ADES)
+            self.visual_threshold = cifp.runway(self.ADES, self.DESRWY)
 
         if self.DEPRWY and self.DEPRWY_LENGTH is None:
             self.DEPRWY_LENGTH = await runway_length_ft(apt, self.ADEP, self.DEPRWY)
@@ -140,21 +144,31 @@ class FMSPlan:
 
         # The plan lists the airports themselves at either end. Where a procedure
         # is flown the enroute leg instead runs from the SID's last fix to the
-        # STAR's first, so the legs join up.
+        # STAR's first, or the approach's first without a STAR, so the legs join up.
         enroute = list(self.waypoints)
         if sid:
             if enroute and enroute[0].name == self.ADEP:
                 enroute.pop(0)
             if not enroute or enroute[0].name != sid[-1].name:
                 enroute.insert(0, sid[-1])
-        if star:
+        arrival = star or app
+        if arrival:
             if enroute and enroute[-1].name == self.ADES:
                 enroute.pop()
-            if not enroute or enroute[-1].name != star[0].name:
-                enroute.append(star[0])
+            if not enroute or enroute[-1].name != arrival[0].name:
+                enroute.append(arrival[0])
 
         # Last approach fix to the threshold, flown by hand
-        visual = [app[-1], self.visual_threshold] if app and self.visual_threshold else []
+        visual = []
+        if self.visual_threshold and app:
+            visual = [app[-1], self.visual_threshold]
+        elif self.visual_threshold and not star:
+            # The plan's own last fix, such as a final approach point, to the
+            # threshold rather than the airport
+            if enroute and enroute[-1].name == self.ADES:
+                enroute.pop()
+            if enroute:
+                visual = [enroute[-1], self.visual_threshold]
         legs = [
             ("SID", sid),
             ("ENRT", enroute),
@@ -361,6 +375,19 @@ class CIFP:
         self._waypoint_cache = {}
         self._procedure_cache = {}
         self._runways_cache = {}
+
+    async def load_runways(self, icao_code: str):
+        """Read an airport's runway thresholds when none of its procedures has"""
+        if icao_code in self._runways_cache:
+            return
+        try:
+            _, runways, _, _ = await run.cpu_bound(
+                parse_procedure, "", icao_code, self._paths.cifp
+            )
+        except OSError:
+            logger.debug(f"No procedure data for {icao_code}")
+            runways = {}
+        self._runways_cache[icao_code] = runways
 
     def runway(self, icao_code: str, runway_name: str):
         """Threshold of a runway at an airport whose procedures have been read"""

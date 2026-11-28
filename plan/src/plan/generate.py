@@ -103,6 +103,37 @@ def course(a, b):
     return math.degrees(math.atan2(y, x)) % 360
 
 
+def point_from(p, bearing, distance):
+    """Position distance nm from p on bearing, degrees true"""
+    d = distance / 3440.065
+    b = math.radians(bearing)
+    la1, lo1 = math.radians(p[0]), math.radians(p[1])
+    la2 = math.asin(math.sin(la1) * math.cos(d) + math.cos(la1) * math.sin(d) * math.cos(b))
+    lo2 = lo1 + math.atan2(
+        math.sin(b) * math.sin(d) * math.cos(la1), math.cos(d) - math.sin(la1) * math.sin(la2)
+    )
+    return math.degrees(la2), (math.degrees(lo2) + 540) % 360 - 180
+
+
+def reciprocal_runway(runway):
+    """Opposite end, e.g. RW24 -> RW06, RW09L -> RW27R"""
+    number = (int(runway[2:4]) + 18 - 1) % 36 + 1
+    side = {"L": "R", "R": "L"}.get(runway[4:], runway[4:])
+    return f"RW{number:02d}{side}"
+
+
+def surface_name(code):
+    """apt.dat runway surface code as a word; X-Plane 12 adds shades of asphalt
+    (20-38) and concrete (50-57) to the original codes"""
+    if code == 1 or 20 <= code <= 38:
+        return "asphalt"
+    if code == 2 or 50 <= code <= 57:
+        return "concrete"
+    return {3: "grass", 4: "dirt", 5: "gravel", 12: "lakebed", 13: "water", 14: "snow"}.get(
+        code
+    )
+
+
 def angle_diff(a, b):
     return abs((a - b + 180) % 360 - 180)
 
@@ -121,6 +152,12 @@ def runway_score(length_ft):
 def block_minutes(distance):
     return BLOCK_ALLOWANCE_MIN + distance / CRUISE_NM_PER_MIN
 
+
+# Final approach point added on the extended centreline, nm from the threshold,
+# when neither a STAR nor an approach gives the plan a final
+FINAL_NM = 10
+# Lat/lon waypoint type in an X-Plane .fms file
+KIND_LATLON = 28
 
 # Distances searched in turn for airway points to end a route without a STAR
 NO_STAR_RADII_NM = (50, 75, 100)
@@ -594,6 +631,11 @@ class Generator:
                 return round(heading_and_length(end, other).length * 3.28084)
         return None
 
+    def runway_surface(self, icao, runway):
+        """Surface of runway (RW27 or 27), e.g. "asphalt", None when unknown"""
+        end = self._runway_ends(icao).get(runway.removeprefix("RW")) if runway else None
+        return surface_name(end.surface) if end else None
+
     def longest_runway_ft(self, icao):
         """Longest runway in the sim's apt.dat, None when unknown"""
         lengths = [
@@ -880,6 +922,12 @@ class Generator:
             if not dedup or dedup[-1][0] != wpt[0]:
                 dedup.append(wpt)
         enroute = dedup
+        # The filed route stops at the last airway fix; the final point is
+        # only in the plan's waypoints
+        filed = list(enroute)
+        final = self._final_point(des, des_rwy) if not star_opt and not app else None
+        if final:
+            enroute.append(final)
 
         # Distance along the whole flight for the altitude profile
         sid_legs = sid_opt[1] + sid_opt[2] if sid_opt else []
@@ -930,7 +978,7 @@ class Generator:
         summary = (
             f"{dep.icao} {dep_rwy or '-'} "
             f"{named(sid_opt[0], sid_opt[3]) if sid_opt else '-'} "
-            f"{route_string(enroute)} "
+            f"{route_string(filed)}{' ' + final[0] if final else ''} "
             f"{named(star_opt[0], star_opt[3]) if star_opt else '-'} "
             f"{named(app[1], app_trans) if app else '-'} {des_rwy or '-'} {des.icao}, "
             f"{round(total)}nm FL{cruise // 100}"
@@ -938,6 +986,21 @@ class Generator:
         return GeneratedPlan(
             dep.icao, des.icao, "\n".join(lines) + "\n", summary, cruise // 100
         )
+
+    @staticmethod
+    def _final_point(des, des_rwy):
+        """(ident, kind, via, position) FINAL_NM out on the runway's extended
+        centreline, None without both thresholds to set its direction"""
+        if not des_rwy or des_rwy not in des.runways:
+            return None
+        other = des.runways.get(reciprocal_runway(des_rwy))
+        if other is None:
+            return None
+        threshold = des.runways[des_rwy]
+        # From the far end through the threshold is the approach, outbound
+        outbound = course(other, threshold)
+        position = point_from(threshold, outbound, FINAL_NM)
+        return (f"{des_rwy}+{FINAL_NM}", KIND_LATLON, "DRCT", position)
 
     def plan_path(self, adep, ades):
         return os.path.join(self._paths.fms_plans, f"{adep}-{ades}.fms")
