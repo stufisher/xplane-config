@@ -82,6 +82,9 @@ class FMSPlan:
     app_proc: Optional[Procedure] = None
     # Procedures named in the plan that could not be read from the CIFP
     failed_procedures: list[str] = field(default_factory=list)
+    # Threshold flown to visually when the approach ends short of the runway,
+    # as at a missed approach point
+    visual_threshold: Optional[Waypoint] = None
 
     async def load_procedures(self, cifp, apt: APT):
         logger.info(f"Loading procedures for {self.ADEP} to {self.ADES}")
@@ -118,6 +121,9 @@ class FMSPlan:
             self.app_proc = await load(
                 self.APP, self.ADES, entry_fix=star_end, transition=self.APPTRANS
             )
+        app = self.app_proc.waypoints if self.app_proc else []
+        if app and self.DESRWY and app[-1].name != self.DESRWY:
+            self.visual_threshold = cifp.runway(self.ADES, self.DESRWY)
 
         if self.DEPRWY and self.DEPRWY_LENGTH is None:
             self.DEPRWY_LENGTH = await runway_length_ft(apt, self.ADEP, self.DEPRWY)
@@ -147,7 +153,15 @@ class FMSPlan:
             if not enroute or enroute[-1].name != star[0].name:
                 enroute.append(star[0])
 
-        legs = [("SID", sid), ("ENRT", enroute), ("STAR", star), ("APP", app)]
+        # Last approach fix to the threshold, flown by hand
+        visual = [app[-1], self.visual_threshold] if app and self.visual_threshold else []
+        legs = [
+            ("SID", sid),
+            ("ENRT", enroute),
+            ("STAR", star),
+            ("APP", app),
+            ("VIS", visual),
+        ]
         return [(name, waypoints) for name, waypoints in legs if waypoints]
 
 
@@ -347,6 +361,10 @@ class CIFP:
         self._waypoint_cache = {}
         self._procedure_cache = {}
         self._runways_cache = {}
+
+    def runway(self, icao_code: str, runway_name: str):
+        """Threshold of a runway at an airport whose procedures have been read"""
+        return self._runways_cache.get(icao_code, {}).get(runway_name)
 
     async def get_waypoint(self, waypoint_and_type: str, icao_code: str = None):
         waypoint_and_type = waypoint_and_type.split(",")

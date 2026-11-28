@@ -30,7 +30,11 @@ SEGMENT_COLOURS = {
     "ENRT": "green",
     "STAR": "purple",
     "APP": "magenta",
+    # Flown by hand from the end of the approach to the threshold
+    "VIS": "yellow",
 }
+# Segments drawn dashed, as they are not flown by the FMS
+DASHED_SEGMENTS = {"VIS": "6 6"}
 # Zoom for a route of a single point, which has no extent to fit
 SINGLE_POINT_ZOOM = 8
 
@@ -68,7 +72,11 @@ def draw_route(leaflet: ui.leaflet, segments) -> list:
                     name="polyline",
                     args=[
                         [(w.latitude, w.longitude) for w in waypoints],
-                        {"color": colour, "weight": 2},
+                        {
+                            "color": colour,
+                            "weight": 2,
+                            "dashArray": DASHED_SEGMENTS.get(segment),
+                        },
                     ],
                 )
             )
